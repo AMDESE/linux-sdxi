@@ -1,0 +1,11 @@
+config SDXI
+	tristate "SDXI support"
+	default m
+	select DMA_ENGINE
+	select DMA_VIRTUAL_CHANNELS
+	select AMD_IOMMU_V2
+	help
+	  Enable support for Smart Data Accelerator Interface (SDXI) DMA
+	  controller. This controller provides DMA capabilities, plus other
+	  advanced data processing features, that can offload the work for
+	  CPUs.
