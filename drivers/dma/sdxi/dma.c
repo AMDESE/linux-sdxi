@@ -382,6 +382,10 @@ static void add_channel(struct dma_device *dma_dev)
 	if (!sdchan)
 		return;
 
+	sdchan->vchan.desc_free = sdxi_tx_desc_free;
+	vchan_init(&sdchan->vchan, dma_dev);
+	sdchan->intr_akey = BAD_HARDCODED_AKEY_IDX;
+
 	sdchan->cxt = sdxi_kcxt_new(sdxi);
 	if (!sdchan->cxt) {
 		devm_kfree(dma_dev->dev, sdchan);
@@ -401,9 +405,6 @@ static void add_channel(struct dma_device *dma_dev)
 					FIELD_PREP(SDXI_AKEY_ENT_INTR_NUM,
 						   BAD_HARDCODED_MSG)),
 	};
-	sdchan->intr_akey = BAD_HARDCODED_AKEY_IDX;
-	sdchan->vchan.desc_free = sdxi_tx_desc_free;
-	vchan_init(&sdchan->vchan, dma_dev);
 }
 
 int sdxi_dma_register(struct sdxi_dev *sdxi)
