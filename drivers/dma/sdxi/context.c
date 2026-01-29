@@ -485,7 +485,7 @@ struct sdxi_cxt *sdxi_kcxt_new(struct sdxi_dev *sdxi)
 
 	if (!sdxi_sq_alloc_default(cxt)) {
 		sdxi_cxt_free(cxt);
-		cxt = NULL;
+		return NULL;
 	}
 
 	sq = cxt->sq;
