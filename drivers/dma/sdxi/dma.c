@@ -399,41 +399,51 @@ static void try_to_catch_pending_msis(struct sdxi_dev *sdxi)
 }
 
 
-static void add_channel(struct dma_device *dma_dev)
+static int add_channel(struct dma_device *dma_dev)
 {
-	struct sdxi_dma_chan *sdchan;
 	struct sdxi_dev *sdxi = dev_get_drvdata(dma_dev->dev);
-	unsigned int irq = pci_irq_vector(to_pci_dev(sdxi_to_dev(sdxi)),
-					  BAD_HARDCODED_MSG);
+	struct sdxi_dma_chan *sdchan;
+	struct sdxi_cxt *cxt;
+	unsigned int irq;
 	int err;
 
-	sdchan = devm_kzalloc(dma_dev->dev, sizeof(*sdchan), GFP_KERNEL);
+	sdchan = kzalloc(sizeof(*sdchan), GFP_KERNEL);
 	if (!sdchan)
-		return;
+		return -ENOMEM;
 
 	sdchan->vchan.desc_free = sdxi_tx_desc_free;
 	vchan_init(&sdchan->vchan, dma_dev);
-	sdchan->intr_akey = BAD_HARDCODED_AKEY_IDX;
 
-	sdchan->cxt = sdxi_kcxt_new(sdxi);
-	if (!sdchan->cxt) {
-		devm_kfree(dma_dev->dev, sdchan);
-		return;
-	}
+	err = -ENOMEM;
+	cxt = sdxi_kcxt_new(sdxi);
+	if (!cxt)
+		goto free_sdchan;
 
-	/* FIXME: remove PCI dependency and hardcoded irq */
-	err = request_irq(irq, sdxi_dma_cxt_irq,
-			  IRQF_TRIGGER_NONE, "SDXI DMAengine", sdchan);
-	if (err)
-		return;	/* FIXME: leaks sdchan and cxt */
+	sdchan->cxt = cxt;
 
 	/* FIXME: Add an akey allocation API, don't hardcode the index. */
+	sdchan->intr_akey = BAD_HARDCODED_AKEY_IDX;
 	sdchan->cxt->akey_table->entry[BAD_HARDCODED_AKEY_IDX] = (struct sdxi_akey_ent) {
 		.intr_num = cpu_to_le16(FIELD_PREP(SDXI_AKEY_ENT_VL, 1) |
 					FIELD_PREP(SDXI_AKEY_ENT_IV, 1) |
 					FIELD_PREP(SDXI_AKEY_ENT_INTR_NUM,
 						   BAD_HARDCODED_MSG)),
 	};
+
+	/* FIXME: remove PCI dependency and hardcoded MSI index */
+	irq = pci_irq_vector(to_pci_dev(sdxi_to_dev(sdxi)), BAD_HARDCODED_MSG);
+	err = request_irq(irq, sdxi_dma_cxt_irq,
+			  IRQF_TRIGGER_NONE, "SDXI DMAengine", sdchan);
+	if (err)
+		goto exit_cxt;
+
+	return 0;
+
+exit_cxt:
+	sdxi_working_cxt_exit(cxt);
+free_sdchan:
+	kfree(sdchan);
+	return err;
 }
 
 int sdxi_dma_register(struct sdxi_dev *sdxi)
@@ -480,8 +490,10 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 	// temp debug hack
 	try_to_catch_pending_msis(sdxi);
 
-	for (size_t i = 0; i < 1; i++)
-		add_channel(dma_dev);
+	for (size_t i = 0; i < 1; i++) {
+		if (add_channel(dma_dev))
+			break;
+	}
 
 	return dmaenginem_async_device_register(dma_dev);
 }
