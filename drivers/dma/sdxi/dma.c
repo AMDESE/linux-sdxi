@@ -370,35 +370,6 @@ static void sdxi_dma_free_chan_resources(struct dma_chan *dma_chan)
 #define BAD_HARDCODED_MSG 1
 #define BAD_HARDCODED_AKEY_IDX 1
 
-static irqreturn_t sdxi_catch_pending(int irq, void *data)
-{
-	struct sdxi_dev *sdxi = data;
-
-	sdxi_err(sdxi, "interrupt %d pending at init\n", irq);
-
-	WARN_ON_ONCE(1);
-	return IRQ_HANDLED;
-}
-
-static void try_to_catch_pending_msis(struct sdxi_dev *sdxi)
-{
-	for (int msg = 1; msg <= 4; ++msg) {
-		unsigned int irq = pci_irq_vector(to_pci_dev(sdxi_to_dev(sdxi)),
-						  msg);
-		sdxi_info(sdxi,
-			  "checking for pending MSI (index=%d, virq=%d)\n",
-			  msg, irq);
-
-		if (WARN_ON_ONCE(request_irq(irq, sdxi_catch_pending,
-					     IRQF_TRIGGER_NONE,
-					     "SDXI catch pending", sdxi)))
-			return;
-
-		free_irq(irq, sdxi);
-	}
-}
-
-
 static int add_channel(struct dma_device *dma_dev)
 {
 	struct sdxi_dev *sdxi = dev_get_drvdata(dma_dev->dev);
@@ -486,9 +457,6 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 	dma_cap_set(DMA_MEMCPY, dma_dev->cap_mask);
 	dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
 	INIT_LIST_HEAD(&dma_dev->channels);
-
-	// temp debug hack
-	try_to_catch_pending_msis(sdxi);
 
 	for (size_t i = 0; i < 1; i++) {
 		if (add_channel(dma_dev))
