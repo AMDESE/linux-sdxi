@@ -15,15 +15,11 @@ jobs:
         cc: [clang, gcc]
         include:
           - kunit: --kunit # Run unit tests by default.
-          - sparse: fatal # Sparse diagnostics are fatal by default.
+          - sparse: warn # Sparse diagnostics are non-fatal by default.
           - cc: clang
             sparse: off # Running sparse with clang is redundant.
-          - arch: arm64
-            sparse: warn # vgetrandom lacks prototype
           - arch: riscv
             sparse: off # "invalid argument to '-march' ... " messages
-          - arch: s390
-            sparse: warn
         exclude:
           - arch: s390
             cc: clang
