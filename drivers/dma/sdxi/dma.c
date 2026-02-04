@@ -55,6 +55,7 @@
 struct sdxi_dma_chan {
 	struct virt_dma_chan vchan;
 	struct sdxi_cxt *cxt;
+	int irq;
 	u16 intr_akey;
 };
 
@@ -375,7 +376,6 @@ static int add_channel(struct dma_device *dma_dev)
 	struct sdxi_dev *sdxi = dev_get_drvdata(dma_dev->dev);
 	struct sdxi_dma_chan *sdchan;
 	struct sdxi_cxt *cxt;
-	unsigned int irq;
 	int err;
 
 	sdchan = kzalloc(sizeof(*sdchan), GFP_KERNEL);
@@ -402,8 +402,9 @@ static int add_channel(struct dma_device *dma_dev)
 	};
 
 	/* FIXME: remove PCI dependency and hardcoded MSI index */
-	irq = pci_irq_vector(to_pci_dev(sdxi_to_dev(sdxi)), BAD_HARDCODED_MSG);
-	err = request_irq(irq, sdxi_dma_cxt_irq,
+	sdchan->irq = pci_irq_vector(to_pci_dev(sdxi_to_dev(sdxi)),
+				     BAD_HARDCODED_MSG);
+	err = request_irq(sdchan->irq, sdxi_dma_cxt_irq,
 			  IRQF_TRIGGER_NONE, "SDXI DMAengine", sdchan);
 	if (err)
 		goto exit_cxt;
