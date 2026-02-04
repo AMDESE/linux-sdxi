@@ -7,6 +7,7 @@
 
 #include <linux/cleanup.h>
 #include <linux/delay.h>
+#include <linux/dev_printk.h>
 #include <linux/container_of.h>
 #include <linux/dma-mapping.h>
 #include <linux/dmaengine.h>
@@ -57,6 +58,11 @@ struct sdxi_dma_chan {
 	struct sdxi_cxt *cxt;
 	int irq;
 	u16 intr_akey;
+};
+
+struct sdxi_dma_dev {
+	struct dma_device dma_dev;
+	struct sdxi_dma_chan sdchan;
 };
 
 /*
@@ -371,24 +377,19 @@ static void sdxi_dma_free_chan_resources(struct dma_chan *dma_chan)
 #define BAD_HARDCODED_MSG 1
 #define BAD_HARDCODED_AKEY_IDX 1
 
-static int add_channel(struct dma_device *dma_dev)
+static int add_channel(struct sdxi_dma_dev *sddev, struct sdxi_dma_chan *sdchan)
 {
-	struct sdxi_dev *sdxi = dev_get_drvdata(dma_dev->dev);
-	struct sdxi_dma_chan *sdchan;
+	struct sdxi_dev *sdxi = dev_get_drvdata(sddev->dma_dev.dev);
 	struct sdxi_cxt *cxt;
 	int err;
 
-	sdchan = kzalloc(sizeof(*sdchan), GFP_KERNEL);
-	if (!sdchan)
-		return -ENOMEM;
-
 	sdchan->vchan.desc_free = sdxi_tx_desc_free;
-	vchan_init(&sdchan->vchan, dma_dev);
+	vchan_init(&sdchan->vchan, &sddev->dma_dev);
 
 	err = -ENOMEM;
 	cxt = sdxi_kcxt_new(sdxi);
 	if (!cxt)
-		goto free_sdchan;
+		return err;
 
 	sdchan->cxt = cxt;
 
@@ -413,15 +414,15 @@ static int add_channel(struct dma_device *dma_dev)
 
 exit_cxt:
 	sdxi_working_cxt_exit(cxt);
-free_sdchan:
-	kfree(sdchan);
 	return err;
 }
 
 int sdxi_dma_register(struct sdxi_dev *sdxi)
 {
 	struct device *dev = sdxi_to_dev(sdxi);
+	struct sdxi_dma_dev *sddev;
 	struct dma_device *dma_dev;
+	int err;
 
 	/*
 	 * FIXME: This code assumes the device supports the interrupt
@@ -430,10 +431,11 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 	 * device's opgroups and bail if IntrGrp isn't implemented.
 	 */
 
-	dma_dev = devm_kzalloc(sdxi_to_dev(sdxi), sizeof(*dma_dev), GFP_KERNEL);
-	if (!dma_dev)
+	sddev = devm_kzalloc(dev, sizeof(*sddev), GFP_KERNEL);
+	if (!sddev)
 		return -ENOMEM;
 
+	dma_dev = &sddev->dma_dev;
 	*dma_dev = (typeof(*dma_dev)) {
 		.dev                 = sdxi_to_dev(sdxi),
 		.src_addr_widths     = DMA_SLAVE_BUSWIDTH_64_BYTES,
@@ -459,10 +461,8 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 	dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
 	INIT_LIST_HEAD(&dma_dev->channels);
 
-	for (size_t i = 0; i < 1; i++) {
-		if (add_channel(dma_dev))
-			break;
-	}
+	if ((err = add_channel(sddev, &sddev->sdchan)))
+		return dev_err_probe(dev, err, "failed channel setup\n");
 
 	return dmaenginem_async_device_register(dma_dev);
 }
