@@ -486,5 +486,8 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 	if ((err = add_channel(sddev, &sddev->sdchan)))
 		return dev_warn_probe(dev, err, "failed channel setup\n");
 
-	return dmaenginem_async_device_register(dma_dev);
+	if ((err = dmaenginem_async_device_register(dma_dev)))
+		return dev_warn_probe(dev, err, "failed to register dma device\n");
+
+	return 0;
 }
