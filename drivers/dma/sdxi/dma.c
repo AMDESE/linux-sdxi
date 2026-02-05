@@ -87,6 +87,11 @@ static struct sdxi_dma_chan *to_sdxi_dma_chan(const struct dma_chan *dma_chan)
 	return container_of(vchan, struct sdxi_dma_chan, vchan);
 }
 
+static struct sdxi_dma_dev *to_sdxi_dma_dev(const struct dma_device *dma_dev)
+{
+	return container_of(dma_dev, struct sdxi_dma_dev, dma_dev);
+}
+
 static struct sdxi_dma_desc *
 to_sdxi_dma_desc(const struct virt_dma_desc *vdesc)
 {
@@ -422,6 +427,16 @@ exit_cxt:
 	return err;
 }
 
+static void sdxi_dma_release(struct dma_device *dma_dev)
+{
+	struct sdxi_dma_dev *sddev = to_sdxi_dma_dev(dma_dev);
+
+	sdxi_info(dev_get_drvdata(sddev->dma_dev.dev), "releasing irq %d\n",
+		  sddev->sdchan.irq);
+
+	free_irq(sddev->sdchan.irq, &sddev->sdchan);
+}
+
 int sdxi_dma_register(struct sdxi_dev *sdxi)
 {
 	struct device *dev = sdxi_to_dev(sdxi);
@@ -461,7 +476,7 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 		.device_synchronize = sdxi_dma_synchronize,
 		.device_tx_status = sdxi_tx_status,
 		.device_issue_pending = sdxi_dma_issue_pending,
-		.device_release = NULL, /* fixme */
+		.device_release = sdxi_dma_release,
 	};
 
 	dma_cap_set(DMA_MEMCPY, dma_dev->cap_mask);
