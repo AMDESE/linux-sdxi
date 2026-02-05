@@ -25,10 +25,6 @@
 #define CREATE_TRACE_POINTS
 #include "trace.h"
 
-static bool dma_engine;
-module_param(dma_engine, bool, 0644);
-MODULE_PARM_DESC(dma_engine, "Enable DMA engine interface (default: false)");
-
 static bool set_pr_bits;
 module_param(set_pr_bits, bool, 0644);
 MODULE_PARM_DESC(set_pr_bits,
@@ -371,11 +367,7 @@ int sdxi_device_init(struct sdxi_dev *sdxi, const struct sdxi_dev_ops *ops)
 	if (err)
 		return err;
 
-	/* Set up DMA engine provider. */
-
-	if (dma_engine)
-		sdxi_dma_register(sdxi);
-
+	sdxi_dma_register(sdxi);
 	return 0;
 }
 

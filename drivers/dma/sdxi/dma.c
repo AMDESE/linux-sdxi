@@ -12,6 +12,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/dmaengine.h>
 #include <linux/list.h>
+#include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/spinlock.h>
 
@@ -24,6 +25,10 @@
 #include "dma.h"
 #include "ring.h"
 #include "sdxi.h"
+
+static bool dma_engine;
+module_param(dma_engine, bool, 0644);
+MODULE_PARM_DESC(dma_engine, "Enable DMA engine interface (default: false)");
 
 /*
  * This provider uses virt_dma_chan / virt_dma_desc.
@@ -424,6 +429,8 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 	struct dma_device *dma_dev;
 	int err;
 
+	if (!dma_engine)
+		return 0;
 	/*
 	 * FIXME: This code assumes the device supports the interrupt
 	 * operation group. It's probably not a bad assumption, but
