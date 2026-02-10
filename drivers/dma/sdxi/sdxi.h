@@ -41,24 +41,6 @@
 #define L1_CXT_CTRL_PTR_SHIFT		6
 #define L1_CXT_AKEY_PTR_SHIFT		12
 
-/* Submission Queue */
-struct sdxi_sq {
-	struct sdxi_cxt *cxt;		/* owner */
-
-	u32 ring_entries;
-	u32 ring_size;
-	struct sdxi_desc *desc_ring;
-	dma_addr_t ring_dma;
-
-	__le64 *write_index;
-	dma_addr_t write_index_dma;
-
-	struct sdxi_cxt_sts *cxt_sts;
-	dma_addr_t cxt_sts_dma;
-
-	/* NB: define doorbell here */
-};
-
 /*
  * The size of the AKey table is flexible, from 4KB to 1MB. Always use
  * the minimum size for now.

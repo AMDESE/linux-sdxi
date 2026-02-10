@@ -13,6 +13,24 @@
 
 #include "sdxi.h"
 
+/* Submission Queue */
+struct sdxi_sq {
+	struct sdxi_cxt *cxt;		/* owner */
+
+	u32 ring_entries;
+	u32 ring_size;
+	struct sdxi_desc *desc_ring;
+	dma_addr_t ring_dma;
+
+	__le64 *write_index;
+	dma_addr_t write_index_dma;
+
+	struct sdxi_cxt_sts *cxt_sts;
+	dma_addr_t cxt_sts_dma;
+
+	/* NB: define doorbell here */
+};
+
 struct sdxi_cxt {
 	struct sdxi_dev *sdxi;	/* owner */
 	unsigned int id;
