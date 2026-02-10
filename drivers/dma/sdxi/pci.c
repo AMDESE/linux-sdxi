@@ -69,11 +69,6 @@ static int sdxi_pci_irq_init(struct sdxi_dev *sdxi)
 	return 0;
 }
 
-static void sdxi_pci_irq_exit(struct sdxi_dev *sdxi)
-{
-	pci_free_irq_vectors(sdxi_to_pci_dev(sdxi));
-}
-
 static int sdxi_pci_map(struct sdxi_dev *sdxi)
 {
 	struct pci_dev *pdev = sdxi_to_pci_dev(sdxi);
@@ -168,7 +163,6 @@ static void sdxi_device_free(struct sdxi_dev *sdxi)
 
 static const struct sdxi_dev_ops sdxi_pci_dev_ops = {
 	.irq_init = sdxi_pci_irq_init,
-	.irq_exit = sdxi_pci_irq_exit,
 	.supports_privileged_addrspace = sdxi_pci_supports_privileged_addrspace,
 };
 
