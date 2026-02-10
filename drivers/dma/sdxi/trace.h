@@ -15,6 +15,7 @@
 #include <linux/trace_seq.h>
 
 #include "sdxi.h"
+#include "context.h"
 
 TRACE_EVENT(sdxi_create_cxt,
 	    TP_PROTO(struct sdxi_dev *sdxi, struct sdxi_cxt *cxt),
