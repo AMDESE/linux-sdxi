@@ -305,7 +305,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	/* 7. Initialize error log according to "Error Log Initialization". */
 	err = sdxi_error_init(sdxi);
 	if (err)
-		goto irq_exit;
+		goto admin_cxt_exit;
 
 	/*
 	 * 8. "Software may also need to configure and enable
@@ -334,9 +334,6 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 
 error_exit:
 	sdxi_error_exit(sdxi);
-irq_exit:
-	if (ops && ops->irq_exit)
-		ops->irq_exit(sdxi);
 admin_cxt_exit:
 	sdxi_working_cxt_exit(sdxi->admin_cxt);
 	return err;
@@ -396,6 +393,4 @@ void sdxi_device_exit(struct sdxi_dev *sdxi)
 
 	sdxi_stop(sdxi);
 	sdxi_error_exit(sdxi);
-	if (sdxi->dev_ops && sdxi->dev_ops->irq_exit)
-		sdxi->dev_ops->irq_exit(sdxi);
 }

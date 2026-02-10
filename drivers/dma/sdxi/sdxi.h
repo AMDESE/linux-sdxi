@@ -80,13 +80,11 @@ struct sdxi_dev;
  * struct sdxi_dev_ops - Bus-specific methods for SDXI devices.
  *
  * @irq_init: Allocate MSIs.
- * @irq_exit: Release MSIs.
  * @supports_privileged_addrspace: Whether the device supports privileged
  *  address spaces, e.g. via PCIe's PASID Privileged Mode.
  */
 struct sdxi_dev_ops {
 	int (*irq_init)(struct sdxi_dev *sdxi);
-	void (*irq_exit)(struct sdxi_dev *sdxi);
 	bool (*supports_privileged_addrspace)(struct sdxi_dev *sdxi);
 };
 
