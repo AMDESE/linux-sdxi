@@ -32,9 +32,10 @@
  */
 #define ERROR_IRQ_MSG 0
 
-/* MMIO BARs */
-#define MMIO_CTL_REGS_BAR		0x0
-#define MMIO_DOORBELL_BAR		0x2
+enum sdxi_mmio_bars {
+	SDXI_PCI_BAR_CTL_REGS = 0,
+	SDXI_PCI_BAR_DOORBELL = 2,
+};
 
 static bool enabled;
 module_param(enabled, bool, 0644);
@@ -76,24 +77,17 @@ static void sdxi_pci_irq_exit(struct sdxi_dev *sdxi)
 static int sdxi_pci_map(struct sdxi_dev *sdxi)
 {
 	struct pci_dev *pdev = sdxi_to_pci_dev(sdxi);
-	int bars, ret;
+	void *__iomem regs;
 
-	bars = 1 << MMIO_CTL_REGS_BAR | 1 << MMIO_DOORBELL_BAR;
-	ret = pcim_iomap_regions(pdev, bars, SDXI_DRV_NAME);
-	if (ret) {
-		sdxi_err(sdxi, "pcim_iomap_regions failed (%d)\n", ret);
-		return ret;
-	}
+	regs = pcim_iomap_region(pdev, SDXI_PCI_BAR_CTL_REGS, KBUILD_MODNAME);
+	if (IS_ERR(regs))
+		return PTR_ERR(regs);
+	sdxi->ctrl_regs = regs;
 
-	sdxi->dbs_bar = pci_resource_start(pdev, MMIO_DOORBELL_BAR);
-
-	/* FIXME: pcim_iomap_table may return NULL, and it's deprecated. */
-	sdxi->ctrl_regs = pcim_iomap_table(pdev)[MMIO_CTL_REGS_BAR];
-	sdxi->dbs = pcim_iomap_table(pdev)[MMIO_DOORBELL_BAR];
-	if (!sdxi->ctrl_regs || !sdxi->dbs) {
-		sdxi_err(sdxi, "pcim_iomap_table failed\n");
-		return -EINVAL;
-	}
+	regs = pcim_iomap_region(pdev, SDXI_PCI_BAR_DOORBELL, KBUILD_MODNAME);
+	if (IS_ERR(regs))
+		return PTR_ERR(regs);
+	sdxi->dbs = regs;
 
 	return 0;
 }
