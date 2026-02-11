@@ -8,6 +8,7 @@
 #ifndef __SDXI_SQ_H
 #define __SDXI_SQ_H
 
+#include <linux/dma-mapping.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
 #include <asm/barrier.h>
 
