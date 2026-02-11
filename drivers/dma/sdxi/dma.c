@@ -87,11 +87,6 @@ static struct sdxi_dma_chan *to_sdxi_dma_chan(const struct dma_chan *dma_chan)
 	return container_of(vchan, struct sdxi_dma_chan, vchan);
 }
 
-static struct sdxi_dma_dev *to_sdxi_dma_dev(const struct dma_device *dma_dev)
-{
-	return container_of(dma_dev, struct sdxi_dma_dev, dma_dev);
-}
-
 static struct sdxi_dma_desc *
 to_sdxi_dma_desc(const struct virt_dma_desc *vdesc)
 {
@@ -373,37 +368,24 @@ static irqreturn_t sdxi_dma_cxt_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
-{
-	return sdxi_adm_start_cxt(to_sdxi_dma_chan(dma_chan)->cxt);
-}
-
-static void sdxi_dma_free_chan_resources(struct dma_chan *dma_chan)
-{
-	sdxi_adm_stop_cxt(to_sdxi_dma_chan(dma_chan)->cxt);
-	vchan_free_chan_resources(to_virt_chan(dma_chan));
-}
-
 #define BAD_HARDCODED_MSG 1
 #define BAD_HARDCODED_AKEY_IDX 1
 
-static int add_channel(struct sdxi_dma_dev *sddev, struct sdxi_dma_chan *sdchan)
+static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
 {
-	struct sdxi_dev *sdxi = dev_get_drvdata(sddev->dma_dev.dev);
-	struct sdxi_cxt *cxt;
+	struct sdxi_dev *sdxi = dev_get_drvdata(dma_chan->device->dev);
+	struct sdxi_dma_chan *sdchan = to_sdxi_dma_chan(dma_chan);
 	int err;
 
-	sdchan->vchan.desc_free = sdxi_tx_desc_free;
-	vchan_init(&sdchan->vchan, &sddev->dma_dev);
+	sdchan->cxt = sdxi_kcxt_new(sdxi);
+	if (!sdchan->cxt)
+		return -ENOMEM;
 
-	err = -ENOMEM;
-	cxt = sdxi_kcxt_new(sdxi);
-	if (!cxt)
-		return err;
-
-	sdchan->cxt = cxt;
-
-	/* FIXME: Add an akey allocation API, don't hardcode the index. */
+	/*
+	 * FIXME: this should all be pushed into the context setup,
+	 * and we can't support multiple channels until we stop
+	 * hard-coding the MSI index.
+	 */
 	sdchan->intr_akey = BAD_HARDCODED_AKEY_IDX;
 	sdchan->cxt->akey_table->entry[BAD_HARDCODED_AKEY_IDX] = (struct sdxi_akey_ent) {
 		.intr_num = cpu_to_le16(FIELD_PREP(SDXI_AKEY_ENT_VL, 1) |
@@ -412,7 +394,6 @@ static int add_channel(struct sdxi_dma_dev *sddev, struct sdxi_dma_chan *sdchan)
 						   BAD_HARDCODED_MSG)),
 	};
 
-	/* FIXME: remove PCI dependency and hardcoded MSI index */
 	sdchan->irq = pci_irq_vector(to_pci_dev(sdxi_to_dev(sdxi)),
 				     BAD_HARDCODED_MSG);
 	err = request_irq(sdchan->irq, sdxi_dma_cxt_irq,
@@ -420,21 +401,33 @@ static int add_channel(struct sdxi_dma_dev *sddev, struct sdxi_dma_chan *sdchan)
 	if (err)
 		goto exit_cxt;
 
+	err = sdxi_adm_start_cxt(sdchan->cxt);
+	if (err)
+		goto free_irq;
+
 	return 0;
 
+free_irq:
+	free_irq(sdchan->irq, sdchan);
 exit_cxt:
-	sdxi_working_cxt_exit(cxt);
+	sdxi_working_cxt_exit(sdchan->cxt);
 	return err;
 }
 
-static void sdxi_dma_release(struct dma_device *dma_dev)
+static void sdxi_dma_free_chan_resources(struct dma_chan *dma_chan)
 {
-	struct sdxi_dma_dev *sddev = to_sdxi_dma_dev(dma_dev);
+	struct sdxi_dma_chan *sdchan = to_sdxi_dma_chan(dma_chan);
 
-	sdxi_info(dev_get_drvdata(sddev->dma_dev.dev), "releasing irq %d\n",
-		  sddev->sdchan.irq);
+	sdxi_adm_stop_cxt(sdchan->cxt);
+	free_irq(sdchan->irq, sdchan);
+	vchan_free_chan_resources(to_virt_chan(dma_chan));
+	sdxi_working_cxt_exit(sdchan->cxt);
+}
 
-	free_irq(sddev->sdchan.irq, &sddev->sdchan);
+static void add_channel(struct sdxi_dma_dev *sddev, struct sdxi_dma_chan *sdchan)
+{
+	sdchan->vchan.desc_free = sdxi_tx_desc_free;
+	vchan_init(&sdchan->vchan, &sddev->dma_dev);
 }
 
 int sdxi_dma_register(struct sdxi_dev *sdxi)
@@ -476,15 +469,13 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 		.device_synchronize = sdxi_dma_synchronize,
 		.device_tx_status = sdxi_tx_status,
 		.device_issue_pending = sdxi_dma_issue_pending,
-		.device_release = sdxi_dma_release,
 	};
 
 	dma_cap_set(DMA_MEMCPY, dma_dev->cap_mask);
 	dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
 	INIT_LIST_HEAD(&dma_dev->channels);
 
-	if ((err = add_channel(sddev, &sddev->sdchan)))
-		return dev_warn_probe(dev, err, "failed channel setup\n");
+	add_channel(sddev, &sddev->sdchan);
 
 	if ((err = dmaenginem_async_device_register(dma_dev)))
 		return dev_warn_probe(dev, err, "failed to register dma device\n");
