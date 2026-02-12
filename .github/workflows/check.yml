@@ -28,6 +28,8 @@ jobs:
             cc: gcc
           - arch: m68k
             cc: clang
+          - arch: riscv
+            cc: clang
           - arch: s390
             cc: clang
     steps:
