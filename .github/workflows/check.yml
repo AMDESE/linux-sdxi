@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64, riscv, s390, x86_64]
+        arch: [arm64, m68k, riscv, s390, x86_64]
         cc: [clang, gcc]
         include:
           - kunit: --kunit # Run unit tests by default.
@@ -21,6 +21,8 @@ jobs:
           - arch: riscv
             sparse: off # "invalid argument to '-march' ... " messages
         exclude:
+          - arch: m68k
+            cc: clang
           - arch: s390
             cc: clang
     steps:
