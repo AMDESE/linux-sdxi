@@ -269,6 +269,7 @@ static irqreturn_t sdxi_irq_thread(int irq, void *data)
 /* Refer to "Error Log Initialization" */
 int sdxi_error_init(struct sdxi_dev *sdxi)
 {
+	struct device *dev = sdxi_to_dev(sdxi);
 	u64 reg;
 	int err;
 
@@ -282,8 +283,8 @@ int sdxi_error_init(struct sdxi_dev *sdxi)
 	sdxi_write64(sdxi, SDXI_MMIO_ERR_STS, reg);
 
 	/* 3. Allocate memory for the error log ring buffer, initialize to zero. */
-	sdxi->err_log = dma_alloc_coherent(sdxi_to_dev(sdxi), ERROR_LOG_SZ,
-					   &sdxi->err_log_dma, GFP_KERNEL);
+	sdxi->err_log = dmam_alloc_coherent(dev, ERROR_LOG_SZ, &sdxi->err_log_dma,
+					    GFP_KERNEL);
 	if (!sdxi->err_log)
 		return -ENOMEM;
 
@@ -312,10 +313,11 @@ int sdxi_error_init(struct sdxi_dev *sdxi)
 	 * Error interrupts can be generated once MMIO_ERR_CFG.en is
 	 * set in step 6, so set up the handler now.
 	 */
-	err = request_threaded_irq(sdxi->error_irq, NULL, sdxi_irq_thread,
-				   IRQF_TRIGGER_NONE, "SDXI error", sdxi);
+	err = devm_request_threaded_irq(dev, sdxi->error_irq, NULL,
+					sdxi_irq_thread, IRQF_TRIGGER_NONE,
+					"SDXI error", sdxi);
 	if (err)
-		goto free_errlog;
+		return err;
 
 	/* 6. Program MMIO_ERR_CFG. */
 	reg = FIELD_PREP(SDXI_MMIO_ERR_CFG_PTR, sdxi->err_log_dma >> 12) |
@@ -324,17 +326,9 @@ int sdxi_error_init(struct sdxi_dev *sdxi)
 	sdxi_write64(sdxi, SDXI_MMIO_ERR_CFG, reg);
 
 	return 0;
-
-free_errlog:
-	dma_free_coherent(sdxi_to_dev(sdxi), ERROR_LOG_SZ,
-			  sdxi->err_log, sdxi->err_log_dma);
-	return err;
 }
 
 void sdxi_error_exit(struct sdxi_dev *sdxi)
 {
 	sdxi_write64(sdxi, SDXI_MMIO_ERR_CFG, 0);
-	free_irq(sdxi->error_irq, sdxi);
-	dma_free_coherent(sdxi_to_dev(sdxi), ERROR_LOG_SZ,
-			  sdxi->err_log, sdxi->err_log_dma);
 }
