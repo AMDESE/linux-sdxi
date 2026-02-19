@@ -56,6 +56,21 @@ static inline u8 akey_table_order(const struct sdxi_akey_table *tbl)
 	return 0;
 }
 
+enum {
+	/*
+	 * Per SDXI 1.0 3.4 Error Log, the error log interrupt is
+	 * always vector 0.
+	 */
+	SDXI_ERROR_VECTOR = 0,
+
+	/*
+	 * The driver requires a minimum of two MSI vectors to operate
+	 * correctly: one for the admin context, one for the error
+	 * log.
+	 */
+	SDXI_MIN_VECTORS = 2,
+};
+
 struct sdxi_dev;
 
 /**
