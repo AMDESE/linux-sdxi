@@ -22,15 +22,7 @@
 #include <linux/pci.h>
 
 #include "error.h"
-#include "mmio.h"
-#include "process.h"
 #include "sdxi.h"
-
-/*
- * SDXI devices signal message 0 on error conditions, see "Error
- * Logging Control and Status Registers".
- */
-#define ERROR_IRQ_MSG 0
 
 enum sdxi_mmio_bars {
 	SDXI_PCI_BAR_CTL_REGS = 0,
@@ -49,22 +41,21 @@ static struct pci_dev *sdxi_to_pci_dev(const struct sdxi_dev *sdxi)
 static int sdxi_pci_irq_init(struct sdxi_dev *sdxi)
 {
 	struct pci_dev *pdev = sdxi_to_pci_dev(sdxi);
-	int msi_count;
-	int ret;
+	int vecs;
 
-	/* 1st irq for error + 1 for each context */
-	msi_count = sdxi->max_cxts + 1;
-
-	ret = pci_alloc_irq_vectors(pdev, 1, msi_count,
-				    PCI_IRQ_MSI | PCI_IRQ_MSIX);
-	if (ret < 0) {
-		sdxi_err(sdxi, "alloc MSI/MSI-X vectors failed\n");
-		return ret;
+	vecs = pci_alloc_irq_vectors(pdev, SDXI_MIN_VECTORS,
+				     SDXI_MIN_VECTORS + sdxi->max_cxts,
+				     PCI_IRQ_MSI | PCI_IRQ_MSIX);
+	if (vecs < 0) {
+		return dev_err_probe(sdxi_to_dev(sdxi), vecs,
+				     "failed to allocate vectors (max_cxts=%u)\n",
+				     sdxi->max_cxts);
 	}
 
-	sdxi->error_irq = pci_irq_vector(pdev, ERROR_IRQ_MSG);
+	sdxi_dbg(sdxi, "allocated %d irq vectors, max_cxts=%u\n",
+		 vecs, sdxi->max_cxts);
 
-	sdxi_dbg(sdxi, "allocated %d irq vectors", ret);
+	sdxi->error_irq = pci_irq_vector(pdev, SDXI_ERROR_VECTOR);
 
 	return 0;
 }
