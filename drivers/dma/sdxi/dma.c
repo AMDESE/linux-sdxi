@@ -463,8 +463,6 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 
 		.device_prep_dma_memcpy = sdxi_dma_prep_memcpy,
 
-		.device_pause = NULL, /* fixme */
-		.device_resume = NULL, /* fixme */
 		.device_terminate_all = sdxi_dma_terminate_all,
 		.device_synchronize = sdxi_dma_synchronize,
 		.device_tx_status = sdxi_tx_status,
