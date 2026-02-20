@@ -1,5 +1,6 @@
 #include <kunit/visibility.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
+#include <linux/lockdep.h>
 #include <linux/range.h>
 #include <linux/sched.h>
 #include <linux/spinlock.h>
@@ -43,13 +44,13 @@ EXPORT_SYMBOL_IF_KUNIT(sdxi_ring_state_init);
 
 static u64 sdxi_ring_state_load_ridx(struct sdxi_ring_state *rs)
 {
-	assert_spin_locked(&rs->lock);
+	lockdep_assert_held(&rs->lock);
 	return le64_to_cpu(READ_ONCE(*rs->read_index_ptr));
 }
 
 static void sdxi_ring_state_store_widx(struct sdxi_ring_state *rs, u64 new_widx)
 {
-	assert_spin_locked(&rs->lock);
+	lockdep_assert_held(&rs->lock);
 	*rs->write_index_ptr = cpu_to_le64(rs->write_index = new_widx);
 }
 
