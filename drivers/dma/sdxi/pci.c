@@ -164,6 +164,12 @@ static int sdxi_pci_probe(struct pci_dev *pdev,
 	struct sdxi_dev *sdxi;
 	int err;
 
+	if (!enabled) {
+		return dev_err_probe(dev, -EPERM,
+				     "sdxi disabled by default. "
+				     "Use module parameter enabled=1 to turn on.\n");
+	}
+
 	sdxi = sdxi_device_alloc(dev);
 	if (!sdxi)
 		return -ENOMEM;
@@ -213,22 +219,11 @@ static struct pci_driver sdxi_driver = {
 
 static int __init sdxi_module_init(void)
 {
-	int rc = 0;
-
-	if (!enabled) {
-		pr_info("SDXI support disabled by default - please use "
-			"\"modprobe sdxi enabled=1\" to turn on\n");
-		return rc;
-	}
-
 	return pci_register_driver(&sdxi_driver);
 }
 
 static void __exit sdxi_module_exit(void)
 {
-	if (!enabled)
-		return;
-
 	pci_unregister_driver(&sdxi_driver);
 }
 
