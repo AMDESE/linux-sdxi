@@ -140,17 +140,16 @@ static const struct sdxi_dev_ops sdxi_pci_dev_ops = {
 static int sdxi_pci_probe(struct pci_dev *pdev,
 			  const struct pci_device_id *id)
 {
-	struct device *dev = &pdev->dev;
 	struct sdxi_dev *sdxi;
 	int err;
 
 	if (!enabled) {
-		return dev_err_probe(dev, -EPERM,
+		return dev_err_probe(&pdev->dev, -EPERM,
 				     "sdxi disabled by default. "
 				     "Use module parameter enabled=1 to turn on.\n");
 	}
 
-	sdxi = sdxi_device_alloc(dev);
+	sdxi = sdxi_device_alloc(&pdev->dev);
 	if (!sdxi)
 		return -ENOMEM;
 
