@@ -74,13 +74,13 @@ enum {
 struct sdxi_dev;
 
 /**
- * struct sdxi_dev_ops - Bus-specific methods for SDXI devices.
+ * struct sdxi_bus_ops - Bus-specific methods for SDXI devices.
  *
  * @irq_init: Allocate MSIs.
  * @supports_privileged_addrspace: Whether the device supports privileged
  *  address spaces, e.g. via PCIe's PASID Privileged Mode.
  */
-struct sdxi_dev_ops {
+struct sdxi_bus_ops {
 	int (*irq_init)(struct sdxi_dev *sdxi);
 	bool (*supports_privileged_addrspace)(struct sdxi_dev *sdxi);
 };
@@ -126,7 +126,7 @@ struct sdxi_dev {
 	/* special contexts */
 	struct sdxi_cxt *admin_cxt;	/* admin context */
 
-	const struct sdxi_dev_ops *dev_ops;
+	const struct sdxi_bus_ops *bus_ops;
 	bool use_privileged_bits:1; /* Whether to set the 'pr' bit
 				     * within the portions of the
 				     * control structure hierarchy
@@ -157,13 +157,13 @@ sdxi_dev_supports_privileged_address_space(struct sdxi_dev *sdxi)
 {
 	if (!sdxi_dev_compatible(sdxi, SDXI_VERSION_1_1))
 		return false;
-	return sdxi->dev_ops->supports_privileged_addrspace ?
-		sdxi->dev_ops->supports_privileged_addrspace(sdxi) :
+	return sdxi->bus_ops->supports_privileged_addrspace ?
+		sdxi->bus_ops->supports_privileged_addrspace(sdxi) :
 		false;
 }
 
 struct sdxi_dev *sdxi_device_alloc(struct device *dev);
-int sdxi_device_init(struct sdxi_dev *sdxi, const struct sdxi_dev_ops *ops);
+int sdxi_device_init(struct sdxi_dev *sdxi, const struct sdxi_bus_ops *ops);
 void sdxi_device_exit(struct sdxi_dev *sdxi);
 
 /* Chardev (IOCTL) */

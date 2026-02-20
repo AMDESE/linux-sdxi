@@ -180,7 +180,7 @@ static void sdxi_stop(struct sdxi_dev *sdxi)
 /* Refer to "Activation of the SDXI Function by Software". */
 static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 {
-	const struct sdxi_dev_ops *ops = sdxi->dev_ops;
+	const struct sdxi_bus_ops *ops = sdxi->bus_ops;
 	u64 version;
 	u64 cxt_l2;
 	u64 cap0;
@@ -355,11 +355,11 @@ struct sdxi_dev *sdxi_device_alloc(struct device *dev)
 	return sdxi;
 }
 
-int sdxi_device_init(struct sdxi_dev *sdxi, const struct sdxi_dev_ops *ops)
+int sdxi_device_init(struct sdxi_dev *sdxi, const struct sdxi_bus_ops *ops)
 {
 	int err;
 
-	sdxi->dev_ops = ops;
+	sdxi->bus_ops = ops;
 
 	/*
 	 * FIXME: the PAGE_SIZE for the pools' object size+align is a

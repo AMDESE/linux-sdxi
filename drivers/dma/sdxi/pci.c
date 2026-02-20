@@ -132,7 +132,7 @@ static void sdxi_pci_exit(struct sdxi_dev *sdxi)
 	sdxi_pci_unmap(sdxi);
 }
 
-static const struct sdxi_dev_ops sdxi_pci_dev_ops = {
+static const struct sdxi_bus_ops sdxi_pci_ops = {
 	.irq_init = sdxi_pci_irq_init,
 	.supports_privileged_addrspace = sdxi_pci_supports_privileged_addrspace,
 };
@@ -157,7 +157,7 @@ static int sdxi_pci_probe(struct pci_dev *pdev,
 	if (err)
 		return err;
 
-	err = sdxi_device_init(sdxi, &sdxi_pci_dev_ops);
+	err = sdxi_device_init(sdxi, &sdxi_pci_ops);
 	if (err)
 		goto pci_exit;
 
