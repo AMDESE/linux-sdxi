@@ -78,14 +78,6 @@ static int sdxi_pci_map(struct sdxi_dev *sdxi)
 	return 0;
 }
 
-static void sdxi_pci_unmap(struct sdxi_dev *sdxi)
-{
-	struct pci_dev *pdev = sdxi_to_pci_dev(sdxi);
-
-	pcim_iounmap(pdev, sdxi->ctrl_regs);
-	pcim_iounmap(pdev, sdxi->dbs);
-}
-
 static int sdxi_pci_init(struct sdxi_dev *sdxi)
 {
 	struct pci_dev *pdev = sdxi_to_pci_dev(sdxi);
@@ -126,12 +118,6 @@ static bool sdxi_pci_supports_privileged_addrspace(struct sdxi_dev *sdxi)
 #endif
 }
 
-
-static void sdxi_pci_exit(struct sdxi_dev *sdxi)
-{
-	sdxi_pci_unmap(sdxi);
-}
-
 static const struct sdxi_bus_ops sdxi_pci_ops = {
 	.irq_init = sdxi_pci_irq_init,
 	.supports_privileged_addrspace = sdxi_pci_supports_privileged_addrspace,
@@ -157,15 +143,7 @@ static int sdxi_pci_probe(struct pci_dev *pdev,
 	if (err)
 		return err;
 
-	err = sdxi_device_init(sdxi, &sdxi_pci_ops);
-	if (err)
-		goto pci_exit;
-
-	return 0;
-
-pci_exit:
-	sdxi_pci_exit(sdxi);
-	return err;
+	return sdxi_device_init(sdxi, &sdxi_pci_ops);
 }
 
 static void sdxi_pci_remove(struct pci_dev *pdev)
@@ -173,7 +151,6 @@ static void sdxi_pci_remove(struct pci_dev *pdev)
 	struct sdxi_dev *sdxi = pci_get_drvdata(pdev);
 
 	sdxi_device_exit(sdxi);
-	sdxi_pci_exit(sdxi);
 }
 
 static const struct pci_device_id sdxi_id_table[] = {
