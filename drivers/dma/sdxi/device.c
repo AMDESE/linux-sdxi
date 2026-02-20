@@ -365,11 +365,13 @@ int sdxi_device_init(struct sdxi_dev *sdxi, const struct sdxi_dev_ops *ops)
 		return err;
 
 	sdxi_dma_register(sdxi);
+	sdxi_chardev_init();
 	return 0;
 }
 
 void sdxi_device_exit(struct sdxi_dev *sdxi)
 {
+	sdxi_chardev_exit();
 	/* Walk sdxi->cxt_array freeing any allocated rows. */
 	for (size_t i = 0; i < L2_TABLE_ENTRIES; ++i) {
 		if (!sdxi->cxt_array[i])

@@ -221,13 +221,7 @@ static int __init sdxi_module_init(void)
 		return rc;
 	}
 
-	rc = pci_register_driver(&sdxi_driver);
-	if (rc)
-		return rc;
-
-	rc = sdxi_chardev_init();
-
-	return rc;
+	return pci_register_driver(&sdxi_driver);
 }
 
 static void __exit sdxi_module_exit(void)
@@ -235,7 +229,6 @@ static void __exit sdxi_module_exit(void)
 	if (!enabled)
 		return;
 
-	sdxi_chardev_exit();
 	pci_unregister_driver(&sdxi_driver);
 }
 
