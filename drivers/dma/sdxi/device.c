@@ -339,6 +339,22 @@ admin_cxt_exit:
 	return err;
 }
 
+struct sdxi_dev *sdxi_device_alloc(struct device *dev)
+{
+	struct sdxi_dev *sdxi = devm_kzalloc(dev, sizeof(*sdxi), GFP_KERNEL);
+
+	if (!sdxi)
+		return NULL;
+
+	if (devm_mutex_init(dev, &sdxi->cxt_lock))
+		return NULL;
+
+	sdxi->dev = dev;
+	dev_set_drvdata(dev, sdxi);
+
+	return sdxi;
+}
+
 int sdxi_device_init(struct sdxi_dev *sdxi, const struct sdxi_dev_ops *ops)
 {
 	int err;

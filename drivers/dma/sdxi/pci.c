@@ -132,26 +132,6 @@ static void sdxi_pci_exit(struct sdxi_dev *sdxi)
 	sdxi_pci_unmap(sdxi);
 }
 
-static struct sdxi_dev *sdxi_device_alloc(struct device *dev)
-{
-	struct sdxi_dev *sdxi;
-
-	sdxi = kzalloc(sizeof(*sdxi), GFP_KERNEL);
-	if (!sdxi)
-		return NULL;
-
-	sdxi->dev = dev;
-
-	mutex_init(&sdxi->cxt_lock);
-
-	return sdxi;
-}
-
-static void sdxi_device_free(struct sdxi_dev *sdxi)
-{
-	kfree(sdxi);
-}
-
 static const struct sdxi_dev_ops sdxi_pci_dev_ops = {
 	.irq_init = sdxi_pci_irq_init,
 	.supports_privileged_addrspace = sdxi_pci_supports_privileged_addrspace,
@@ -174,11 +154,9 @@ static int sdxi_pci_probe(struct pci_dev *pdev,
 	if (!sdxi)
 		return -ENOMEM;
 
-	pci_set_drvdata(pdev, sdxi);
-
 	err = sdxi_pci_init(sdxi);
 	if (err)
-		goto free_sdxi;
+		return err;
 
 	err = sdxi_device_init(sdxi, &sdxi_pci_dev_ops);
 	if (err)
@@ -188,9 +166,6 @@ static int sdxi_pci_probe(struct pci_dev *pdev,
 
 pci_exit:
 	sdxi_pci_exit(sdxi);
-free_sdxi:
-	sdxi_device_free(sdxi);
-
 	return err;
 }
 
@@ -200,7 +175,6 @@ static void sdxi_pci_remove(struct pci_dev *pdev)
 
 	sdxi_device_exit(sdxi);
 	sdxi_pci_exit(sdxi);
-	sdxi_device_free(sdxi);
 }
 
 static const struct pci_device_id sdxi_id_table[] = {
