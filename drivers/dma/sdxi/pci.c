@@ -217,18 +217,7 @@ static struct pci_driver sdxi_driver = {
 	.sriov_configure = pci_sriov_configure_simple,
 };
 
-static int __init sdxi_module_init(void)
-{
-	return pci_register_driver(&sdxi_driver);
-}
-
-static void __exit sdxi_module_exit(void)
-{
-	pci_unregister_driver(&sdxi_driver);
-}
-
 MODULE_AUTHOR("Wei Huang <wei.huang2@amd.com>");
 MODULE_DESCRIPTION(SDXI_DRV_DESC);
 MODULE_LICENSE("GPL v2");
-module_init(sdxi_module_init);
-module_exit(sdxi_module_exit);
+module_pci_driver(sdxi_driver);
