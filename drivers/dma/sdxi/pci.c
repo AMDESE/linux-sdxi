@@ -60,24 +60,6 @@ static int sdxi_pci_irq_init(struct sdxi_dev *sdxi)
 	return 0;
 }
 
-static int sdxi_pci_map(struct sdxi_dev *sdxi)
-{
-	struct pci_dev *pdev = sdxi_to_pci_dev(sdxi);
-	void *__iomem regs;
-
-	regs = pcim_iomap_region(pdev, SDXI_PCI_BAR_CTL_REGS, KBUILD_MODNAME);
-	if (IS_ERR(regs))
-		return PTR_ERR(regs);
-	sdxi->ctrl_regs = regs;
-
-	regs = pcim_iomap_region(pdev, SDXI_PCI_BAR_DOORBELL, KBUILD_MODNAME);
-	if (IS_ERR(regs))
-		return PTR_ERR(regs);
-	sdxi->dbs = regs;
-
-	return 0;
-}
-
 static int sdxi_pci_init(struct sdxi_dev *sdxi)
 {
 	struct pci_dev *pdev = sdxi_to_pci_dev(sdxi);
@@ -85,24 +67,28 @@ static int sdxi_pci_init(struct sdxi_dev *sdxi)
 	int ret;
 
 	ret = pcim_enable_device(pdev);
-	if (ret) {
-		sdxi_err(sdxi, "pcim_enable_device failed\n");
-		return ret;
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to enable device\n");
+
+	ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to set DMA masks\n");
+
+	sdxi->ctrl_regs = pcim_iomap_region(pdev, SDXI_PCI_BAR_CTL_REGS,
+					    KBUILD_MODNAME);
+	if (IS_ERR(sdxi->ctrl_regs)) {
+		return dev_err_probe(dev, PTR_ERR(sdxi->ctrl_regs),
+				     "failed to map control registers\n");
+	}
+
+	sdxi->dbs = pcim_iomap_region(pdev, SDXI_PCI_BAR_DOORBELL,
+				      KBUILD_MODNAME);
+	if (IS_ERR(sdxi->dbs)) {
+		return dev_err_probe(dev, PTR_ERR(sdxi->dbs),
+				     "failed to map doorbell region\n");
 	}
 
 	pci_set_master(pdev);
-	ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
-	if (ret) {
-		sdxi_err(sdxi, "failed to set DMA mask & coherent bits\n");
-		return ret;
-	}
-
-	ret = sdxi_pci_map(sdxi);
-	if (ret) {
-		sdxi_err(sdxi, "failed to map device IO resources\n");
-		return ret;
-	}
-
 	return 0;
 }
 
