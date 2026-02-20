@@ -199,3 +199,4 @@ int sdxi_encode_sync(struct sdxi_desc *desc, const struct sdxi_sync *params)
 
 	return 0;
 }
+EXPORT_SYMBOL_IF_KUNIT(sdxi_encode_sync);

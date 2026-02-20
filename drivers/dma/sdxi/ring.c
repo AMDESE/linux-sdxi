@@ -1,3 +1,4 @@
+#include <kunit/visibility.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
 #include <linux/range.h>
 #include <linux/sched.h>
@@ -38,6 +39,7 @@ void sdxi_ring_state_init(struct sdxi_ring_state *rs, const __le64 *read_index,
 	pr_debug("initialized ring state at %p with %u entries\n",
 		 rs, rs->entries);
 }
+EXPORT_SYMBOL_IF_KUNIT(sdxi_ring_state_init);
 
 static u64 sdxi_ring_state_load_ridx(struct sdxi_ring_state *rs)
 {
@@ -99,6 +101,7 @@ int sdxi_ring_try_reserve(struct sdxi_ring_state *rs, size_t nr,
 
 	return 0;
 }
+EXPORT_SYMBOL_IF_KUNIT(sdxi_ring_try_reserve);
 
 /* Blocking ring reservation. Retries until success or non-transient error. */
 int sdxi_ring_reserve(struct sdxi_ring_state *rs, size_t nr,
@@ -141,3 +144,4 @@ struct sdxi_desc *sdxi_ring_resv_next(struct sdxi_ring_resv *resv)
 		  resv->range.start, resv->range.end, resv->iter);
 	return NULL;
 }
+EXPORT_SYMBOL_IF_KUNIT(sdxi_ring_resv_next);
