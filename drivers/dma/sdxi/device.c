@@ -339,27 +339,9 @@ admin_cxt_exit:
 	return err;
 }
 
-struct sdxi_dev *sdxi_device_alloc(struct device *dev)
-{
-	struct sdxi_dev *sdxi = devm_kzalloc(dev, sizeof(*sdxi), GFP_KERNEL);
-
-	if (!sdxi)
-		return NULL;
-
-	if (devm_mutex_init(dev, &sdxi->cxt_lock))
-		return NULL;
-
-	sdxi->dev = dev;
-	dev_set_drvdata(dev, sdxi);
-
-	return sdxi;
-}
-
-int sdxi_device_init(struct sdxi_dev *sdxi, const struct sdxi_bus_ops *ops)
+static int sdxi_device_init(struct sdxi_dev *sdxi)
 {
 	int err;
-
-	sdxi->bus_ops = ops;
 
 	/*
 	 * FIXME: the PAGE_SIZE for the pools' object size+align is a
@@ -385,7 +367,7 @@ int sdxi_device_init(struct sdxi_dev *sdxi, const struct sdxi_bus_ops *ops)
 	return 0;
 }
 
-void sdxi_device_exit(struct sdxi_dev *sdxi)
+static void sdxi_device_exit(struct sdxi_dev *sdxi)
 {
 	sdxi_chardev_exit();
 	/* Walk sdxi->cxt_array freeing any allocated rows. */
@@ -411,4 +393,35 @@ void sdxi_device_exit(struct sdxi_dev *sdxi)
 
 	sdxi_stop(sdxi);
 	sdxi_error_exit(sdxi);
+}
+
+int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
+{
+	struct sdxi_dev *sdxi;
+	int err;
+
+	sdxi = devm_kzalloc(dev, sizeof(*sdxi), GFP_KERNEL);
+	if (!sdxi)
+		return -ENOMEM;
+
+	err = devm_mutex_init(dev, &sdxi->cxt_lock);
+	if (err)
+		return err;
+
+	sdxi->dev = dev;
+	sdxi->bus_ops = ops;
+	dev_set_drvdata(dev, sdxi);
+
+	err = sdxi->bus_ops->init(sdxi);
+	if (err)
+		return err;
+
+	return sdxi_device_init(sdxi);
+}
+
+void sdxi_unregister(struct device *dev)
+{
+	struct sdxi_dev *sdxi = dev_get_drvdata(dev);
+
+	sdxi_device_exit(sdxi);
 }

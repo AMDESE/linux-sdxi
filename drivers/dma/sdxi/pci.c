@@ -106,37 +106,25 @@ static bool sdxi_pci_supports_privileged_addrspace(struct sdxi_dev *sdxi)
 
 static const struct sdxi_bus_ops sdxi_pci_ops = {
 	.irq_init = sdxi_pci_irq_init,
+	.init = sdxi_pci_init,
 	.supports_privileged_addrspace = sdxi_pci_supports_privileged_addrspace,
 };
 
 static int sdxi_pci_probe(struct pci_dev *pdev,
 			  const struct pci_device_id *id)
 {
-	struct sdxi_dev *sdxi;
-	int err;
-
 	if (!enabled) {
 		return dev_err_probe(&pdev->dev, -EPERM,
 				     "sdxi disabled by default. "
 				     "Use module parameter enabled=1 to turn on.\n");
 	}
 
-	sdxi = sdxi_device_alloc(&pdev->dev);
-	if (!sdxi)
-		return -ENOMEM;
-
-	err = sdxi_pci_init(sdxi);
-	if (err)
-		return err;
-
-	return sdxi_device_init(sdxi, &sdxi_pci_ops);
+	return sdxi_register(&pdev->dev, &sdxi_pci_ops);
 }
 
 static void sdxi_pci_remove(struct pci_dev *pdev)
 {
-	struct sdxi_dev *sdxi = pci_get_drvdata(pdev);
-
-	sdxi_device_exit(sdxi);
+	sdxi_unregister(&pdev->dev);
 }
 
 static const struct pci_device_id sdxi_id_table[] = {

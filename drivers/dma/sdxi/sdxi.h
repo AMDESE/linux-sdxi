@@ -82,6 +82,12 @@ struct sdxi_dev;
  */
 struct sdxi_bus_ops {
 	int (*irq_init)(struct sdxi_dev *sdxi);
+	/**
+	 * @init: Map control registers and doorbell region, allocate
+	 *        IRQ ranges. Assign sdxi->error_irq. Invoked before
+	 *        bus-agnostic SDXI function initialization.
+	 */
+	int (*init)(struct sdxi_dev *sdxi);
 	bool (*supports_privileged_addrspace)(struct sdxi_dev *sdxi);
 };
 
@@ -162,9 +168,8 @@ sdxi_dev_supports_privileged_address_space(struct sdxi_dev *sdxi)
 		false;
 }
 
-struct sdxi_dev *sdxi_device_alloc(struct device *dev);
-int sdxi_device_init(struct sdxi_dev *sdxi, const struct sdxi_bus_ops *ops);
-void sdxi_device_exit(struct sdxi_dev *sdxi);
+int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops);
+void sdxi_unregister(struct device *dev);
 
 /* Chardev (IOCTL) */
 int sdxi_chardev_init(void);
