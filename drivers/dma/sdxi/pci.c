@@ -22,6 +22,7 @@
 #include <linux/pci.h>
 
 #include "error.h"
+#include "mmio.h"
 #include "sdxi.h"
 
 enum sdxi_mmio_bars {
@@ -38,33 +39,12 @@ static struct pci_dev *sdxi_to_pci_dev(const struct sdxi_dev *sdxi)
 	return to_pci_dev(sdxi_to_dev(sdxi));
 }
 
-static int sdxi_pci_irq_init(struct sdxi_dev *sdxi)
-{
-	struct pci_dev *pdev = sdxi_to_pci_dev(sdxi);
-	int vecs;
-
-	vecs = pci_alloc_irq_vectors(pdev, SDXI_MIN_VECTORS,
-				     SDXI_MIN_VECTORS + sdxi->max_cxts,
-				     PCI_IRQ_MSI | PCI_IRQ_MSIX);
-	if (vecs < 0) {
-		return dev_err_probe(sdxi_to_dev(sdxi), vecs,
-				     "failed to allocate vectors (max_cxts=%u)\n",
-				     sdxi->max_cxts);
-	}
-
-	sdxi_dbg(sdxi, "allocated %d irq vectors, max_cxts=%u\n",
-		 vecs, sdxi->max_cxts);
-
-	sdxi->error_irq = pci_irq_vector(pdev, SDXI_ERROR_VECTOR);
-
-	return 0;
-}
-
 static int sdxi_pci_init(struct sdxi_dev *sdxi)
 {
 	struct pci_dev *pdev = sdxi_to_pci_dev(sdxi);
 	struct device *dev = &pdev->dev;
-	int ret;
+	unsigned int cap1_max_cxt;
+	int vecs, ret;
 
 	ret = pcim_enable_device(pdev);
 	if (ret)
@@ -88,6 +68,23 @@ static int sdxi_pci_init(struct sdxi_dev *sdxi)
 				     "failed to map doorbell region\n");
 	}
 
+	/*
+	 * Allocate the minimum required set of vectors plus one for
+	 * each client context supported by the function.
+	 */
+	cap1_max_cxt = FIELD_GET(SDXI_MMIO_CAP1_MAX_CXT,
+				 sdxi_read64(sdxi, SDXI_MMIO_CAP1));
+	vecs = pci_alloc_irq_vectors(pdev, SDXI_MIN_VECTORS,
+				     SDXI_MIN_VECTORS + cap1_max_cxt,
+				     PCI_IRQ_MSI | PCI_IRQ_MSIX);
+	if (vecs < 0) {
+		return dev_err_probe(dev, vecs,
+				     "failed to allocate MSIs (max_cxt=%u)\n",
+				     cap1_max_cxt);
+	}
+
+	sdxi_dbg(sdxi, "allocated %d vectors\n", vecs);
+	sdxi->error_irq = pci_irq_vector(pdev, SDXI_ERROR_VECTOR);
 	pci_set_master(pdev);
 	return 0;
 }
@@ -105,7 +102,6 @@ static bool sdxi_pci_supports_privileged_addrspace(struct sdxi_dev *sdxi)
 }
 
 static const struct sdxi_bus_ops sdxi_pci_ops = {
-	.irq_init = sdxi_pci_irq_init,
 	.init = sdxi_pci_init,
 	.supports_privileged_addrspace = sdxi_pci_supports_privileged_addrspace,
 };
