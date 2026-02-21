@@ -11,10 +11,12 @@
 #include <linux/dev_printk.h>
 #include <linux/dma-mapping.h>
 #include <linux/dmaengine.h>
+#include <linux/idr.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/types.h>
+#include <asm/bug.h>
 
 #include "hw.h"
 #include "mmio.h"
@@ -84,6 +86,10 @@ struct sdxi_bus_ops {
 	 */
 	int (*init)(struct sdxi_dev *sdxi);
 	/**
+	 * @get_irq: Map device interrupt index to Linux IRQ number.
+	 */
+	int (*get_irq)(struct sdxi_dev *sdxi, unsigned int index);
+	/**
 	 * @supports_privileged_addrspace:
 	 *    Whether the device supports privileged address spaces,
 	 *    e.g. via PCIe's PASID Privileged Mode.
@@ -124,6 +130,9 @@ struct sdxi_dev {
 	struct dma_pool *cxt_sts_pool;
 	struct dma_pool *cxt_ctl_pool;
 
+	unsigned int nr_vectors;
+	struct ida vectors;
+
 	/* error log */
 	int error_irq;
 	struct sdxi_errlog_hd_ent *err_log;
@@ -157,6 +166,51 @@ static inline struct device *sdxi_to_dev(const struct sdxi_dev *sdxi)
 #define sdxi_dbg(s, fmt, ...) dev_dbg(sdxi_to_dev(s), fmt, ## __VA_ARGS__)
 #define sdxi_info(s, fmt, ...) dev_info(sdxi_to_dev(s), fmt, ## __VA_ARGS__)
 #define sdxi_err(s, fmt, ...) dev_err(sdxi_to_dev(s), fmt, ## __VA_ARGS__)
+
+/**
+ * sdxi_alloc_vector() - Allocate an interrupt vector.
+ *
+ * A vector that will have the same lifetime as the device does not
+ * need to be released explicitly. Otherwise the vector must be
+ * released with sdxi_free_vector().
+ */
+static inline int sdxi_alloc_vector(struct sdxi_dev *sdxi)
+{
+	return ida_alloc_max(&sdxi->vectors, sdxi->nr_vectors - 1,
+			     GFP_KERNEL);
+}
+
+/**
+ * sdxi_reserve_vector() - Reserve a specific interrupt vector.
+ *
+ * Same lifetime considerations as sdxi_alloc_vector().
+ */
+static inline int sdxi_reserve_vector(struct sdxi_dev *sdxi, unsigned int nr)
+{
+	WARN_ON_ONCE(nr >= sdxi->nr_vectors);
+	WARN_ON_ONCE(ida_exists(&sdxi->vectors, nr));
+	return ida_alloc_range(&sdxi->vectors, nr, nr, GFP_KERNEL);
+}
+
+/**
+ * sdxi_free_vector() - Release a previously allocated index.
+ */
+static inline void sdxi_free_vector(struct sdxi_dev *sdxi, unsigned int nr)
+{
+	ida_free(&sdxi->vectors, nr);
+}
+
+/**
+ * sdxi_vector_to_irq() - Translate an allocated interrupt vector to
+ *                        Linux IRQ number suitable for passing to
+ *                        request_irq() et al.
+ */
+static inline int sdxi_vector_to_irq(struct sdxi_dev *sdxi, unsigned int nr)
+{
+	/* Moan if the index isn't currently allocated. */
+	WARN_ON_ONCE(!ida_exists(&sdxi->vectors, nr));
+	return sdxi->bus_ops->get_irq(sdxi, nr);
+}
 
 static inline bool
 sdxi_dev_supports_privileged_address_space(struct sdxi_dev *sdxi)

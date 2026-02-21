@@ -400,6 +400,7 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 
 	sdxi->dev = dev;
 	sdxi->bus_ops = ops;
+	ida_init(&sdxi->vectors);
 	dev_set_drvdata(dev, sdxi);
 
 	err = sdxi->bus_ops->init(sdxi);
@@ -414,4 +415,5 @@ void sdxi_unregister(struct device *dev)
 	struct sdxi_dev *sdxi = dev_get_drvdata(dev);
 
 	sdxi_device_exit(sdxi);
+	ida_destroy(&sdxi->vectors);
 }
