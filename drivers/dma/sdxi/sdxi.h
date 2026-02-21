@@ -76,12 +76,10 @@ struct sdxi_dev;
 /**
  * struct sdxi_bus_ops - Bus-specific methods for SDXI devices.
  *
- * @irq_init: Allocate MSIs.
  * @supports_privileged_addrspace: Whether the device supports privileged
  *  address spaces, e.g. via PCIe's PASID Privileged Mode.
  */
 struct sdxi_bus_ops {
-	int (*irq_init)(struct sdxi_dev *sdxi);
 	/**
 	 * @init: Map control registers and doorbell region, allocate
 	 *        IRQ ranges. Assign sdxi->error_irq. Invoked before
