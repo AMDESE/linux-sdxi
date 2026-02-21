@@ -180,7 +180,6 @@ static void sdxi_stop(struct sdxi_dev *sdxi)
 /* Refer to "Activation of the SDXI Function by Software". */
 static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 {
-	const struct sdxi_bus_ops *ops = sdxi->bus_ops;
 	u64 version;
 	u64 cxt_l2;
 	u64 cap0;
@@ -292,15 +291,6 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	 *
 	 * 6. If restoring saved state, adjust as appropriate. (We're not.)
 	 */
-
-	/*
-	 * MSI allocation is informed by the function's maximum
-	 * supported contexts, which was discovered in 1.a. Need to do
-	 * this before step 7, which claims an IRQ.
-	 */
-	err = (ops && ops->irq_init) ? ops->irq_init(sdxi) : 0;
-	if (err)
-		goto admin_cxt_exit;
 
 	/* 7. Initialize error log according to "Error Log Initialization". */
 	err = sdxi_error_init(sdxi);
