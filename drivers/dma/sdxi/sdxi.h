@@ -75,9 +75,6 @@ struct sdxi_dev;
 
 /**
  * struct sdxi_bus_ops - Bus-specific methods for SDXI devices.
- *
- * @supports_privileged_addrspace: Whether the device supports privileged
- *  address spaces, e.g. via PCIe's PASID Privileged Mode.
  */
 struct sdxi_bus_ops {
 	/**
@@ -86,6 +83,11 @@ struct sdxi_bus_ops {
 	 *        bus-agnostic SDXI function initialization.
 	 */
 	int (*init)(struct sdxi_dev *sdxi);
+	/**
+	 * @supports_privileged_addrspace:
+	 *    Whether the device supports privileged address spaces,
+	 *    e.g. via PCIe's PASID Privileged Mode.
+	 */
 	bool (*supports_privileged_addrspace)(struct sdxi_dev *sdxi);
 };
 
