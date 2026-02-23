@@ -83,10 +83,17 @@ static int sdxi_pci_init(struct sdxi_dev *sdxi)
 				     cap1_max_cxt);
 	}
 
-	sdxi_dbg(sdxi, "allocated %d vectors\n", vecs);
+	sdxi->nr_vectors = vecs;
+	sdxi_dbg(sdxi, "allocated %u vectors\n", sdxi->nr_vectors);
+
 	sdxi->error_irq = pci_irq_vector(pdev, SDXI_ERROR_VECTOR);
 	pci_set_master(pdev);
 	return 0;
+}
+
+static int sdxi_pci_get_irq(struct sdxi_dev *sdxi, unsigned int nr)
+{
+	return pci_irq_vector(sdxi_to_pci_dev(sdxi), nr);
 }
 
 static bool sdxi_pci_supports_privileged_addrspace(struct sdxi_dev *sdxi)
@@ -103,6 +110,7 @@ static bool sdxi_pci_supports_privileged_addrspace(struct sdxi_dev *sdxi)
 
 static const struct sdxi_bus_ops sdxi_pci_ops = {
 	.init = sdxi_pci_init,
+	.get_irq = sdxi_pci_get_irq,
 	.supports_privileged_addrspace = sdxi_pci_supports_privileged_addrspace,
 };
 
