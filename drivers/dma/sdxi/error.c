@@ -270,8 +270,8 @@ static irqreturn_t sdxi_irq_thread(int irq, void *data)
 int sdxi_error_init(struct sdxi_dev *sdxi)
 {
 	struct device *dev = sdxi_to_dev(sdxi);
+	int vec, irq, err;
 	u64 reg;
-	int err;
 
 	/* 1. Clear MMIO_ERR_CFG. Error interrupts are inhibited until step 6. */
 	sdxi_write64(sdxi, SDXI_MMIO_ERR_CFG, 0);
@@ -313,9 +313,16 @@ int sdxi_error_init(struct sdxi_dev *sdxi)
 	 * Error interrupts can be generated once MMIO_ERR_CFG.en is
 	 * set in step 6, so set up the handler now.
 	 */
-	err = devm_request_threaded_irq(dev, sdxi->error_irq, NULL,
-					sdxi_irq_thread, IRQF_TRIGGER_NONE,
-					"SDXI error", sdxi);
+	vec = sdxi_reserve_vector(sdxi, SDXI_ERROR_VECTOR);
+	if (vec < 0)
+		return dev_err_probe(dev, vec, "reserving error vector\n");
+
+	irq = sdxi_vector_to_irq(sdxi, vec);
+	if (irq < 0)
+		return dev_err_probe(dev, irq, "mapping vector %u to irq\n", vec);
+
+	err = devm_request_threaded_irq(dev, irq, NULL, sdxi_irq_thread,
+					IRQF_TRIGGER_NONE, "SDXI error", sdxi);
 	if (err)
 		return err;
 
