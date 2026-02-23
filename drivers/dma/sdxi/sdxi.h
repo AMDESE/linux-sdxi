@@ -81,8 +81,8 @@ struct sdxi_dev;
 struct sdxi_bus_ops {
 	/**
 	 * @init: Map control registers and doorbell region, allocate
-	 *        IRQ ranges. Assign sdxi->error_irq. Invoked before
-	 *        bus-agnostic SDXI function initialization.
+	 *        IRQ ranges. Invoked before bus-agnostic SDXI
+	 *        function initialization.
 	 */
 	int (*init)(struct sdxi_dev *sdxi);
 	/**
@@ -134,7 +134,6 @@ struct sdxi_dev {
 	struct ida vectors;
 
 	/* error log */
-	int error_irq;
 	struct sdxi_errlog_hd_ent *err_log;
 	dma_addr_t err_log_dma;
 

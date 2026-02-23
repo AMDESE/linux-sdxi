@@ -86,7 +86,6 @@ static int sdxi_pci_init(struct sdxi_dev *sdxi)
 	sdxi->nr_vectors = vecs;
 	sdxi_dbg(sdxi, "allocated %u vectors\n", sdxi->nr_vectors);
 
-	sdxi->error_irq = pci_irq_vector(pdev, SDXI_ERROR_VECTOR);
 	pci_set_master(pdev);
 	return 0;
 }
