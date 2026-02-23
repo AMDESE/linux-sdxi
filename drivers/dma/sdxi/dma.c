@@ -13,7 +13,6 @@
 #include <linux/dmaengine.h>
 #include <linux/list.h>
 #include <linux/module.h>
-#include <linux/pci.h>
 #include <linux/spinlock.h>
 
 #include "../dmaengine.h"
@@ -61,7 +60,8 @@ MODULE_PARM_DESC(dma_engine, "Enable DMA engine interface (default: false)");
 struct sdxi_dma_chan {
 	struct virt_dma_chan vchan;
 	struct sdxi_cxt *cxt;
-	int irq;
+	unsigned int vector;
+	unsigned int irq;
 	u16 intr_akey;
 };
 
@@ -368,34 +368,41 @@ static irqreturn_t sdxi_dma_cxt_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-#define BAD_HARDCODED_MSG 1
 #define BAD_HARDCODED_AKEY_IDX 1
 
 static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
 {
 	struct sdxi_dev *sdxi = dev_get_drvdata(dma_chan->device->dev);
 	struct sdxi_dma_chan *sdchan = to_sdxi_dma_chan(dma_chan);
+	int vector, irq;
 	int err;
 
 	sdchan->cxt = sdxi_kcxt_new(sdxi);
 	if (!sdchan->cxt)
 		return -ENOMEM;
 
+	err = vector = sdxi_alloc_vector(sdxi);
+	if (vector < 0)
+		goto exit_cxt;
+
+	sdchan->vector = vector;
+
+	err = irq = sdxi_vector_to_irq(sdxi, vector);
+	if (irq < 0)
+		goto free_vector;
+
+	sdchan->irq = irq;
 	/*
-	 * FIXME: this should all be pushed into the context setup,
-	 * and we can't support multiple channels until we stop
-	 * hard-coding the MSI index.
+	 * FIXME: this should all be pushed into the context setup.
 	 */
 	sdchan->intr_akey = BAD_HARDCODED_AKEY_IDX;
 	sdchan->cxt->akey_table->entry[BAD_HARDCODED_AKEY_IDX] = (struct sdxi_akey_ent) {
 		.intr_num = cpu_to_le16(FIELD_PREP(SDXI_AKEY_ENT_VL, 1) |
 					FIELD_PREP(SDXI_AKEY_ENT_IV, 1) |
 					FIELD_PREP(SDXI_AKEY_ENT_INTR_NUM,
-						   BAD_HARDCODED_MSG)),
+						   vector)),
 	};
 
-	sdchan->irq = pci_irq_vector(to_pci_dev(sdxi_to_dev(sdxi)),
-				     BAD_HARDCODED_MSG);
 	err = request_irq(sdchan->irq, sdxi_dma_cxt_irq,
 			  IRQF_TRIGGER_NONE, "SDXI DMAengine", sdchan);
 	if (err)
@@ -409,6 +416,8 @@ static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
 
 free_irq:
 	free_irq(sdchan->irq, sdchan);
+free_vector:
+	sdxi_free_vector(sdxi, vector);
 exit_cxt:
 	sdxi_working_cxt_exit(sdchan->cxt);
 	return err;
@@ -420,6 +429,7 @@ static void sdxi_dma_free_chan_resources(struct dma_chan *dma_chan)
 
 	sdxi_adm_stop_cxt(sdchan->cxt);
 	free_irq(sdchan->irq, sdchan);
+	sdxi_free_vector(sdchan->cxt->sdxi, sdchan->vector);
 	vchan_free_chan_resources(to_virt_chan(dma_chan));
 	sdxi_working_cxt_exit(sdchan->cxt);
 }
