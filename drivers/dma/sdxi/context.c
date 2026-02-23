@@ -345,6 +345,7 @@ static struct sdxi_cxt *alloc_cxt(struct sdxi_dev *sdxi, bool privileged)
 	cxt->db_base = id * sdxi->db_stride;
 	cxt->db = sdxi->dbs + id * sdxi->db_stride;
 	cxt->privileged = privileged;
+	ida_init(&cxt->akey_ida);
 
 	sdxi->cxt_array[l2_idx][l1_idx] = cxt;
 	sdxi->cxt_count++;
@@ -364,6 +365,7 @@ static void free_cxt(struct sdxi_cxt *cxt)
 	dma_free_coherent(sdxi_to_dev(sdxi), sizeof(*cxt->akey_table),
 			  cxt->akey_table, cxt->akey_table_dma);
 	kfree(cxt->ring_state);
+	ida_destroy(&cxt->akey_ida);
 	kfree(cxt);
 
 	(sdxi->cxt_array)[l2_idx][l1_idx] = NULL;

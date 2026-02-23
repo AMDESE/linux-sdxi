@@ -8,8 +8,11 @@
 #ifndef __SDXI_SQ_H
 #define __SDXI_SQ_H
 
+#include <linux/array_size.h>
 #include <linux/dma-mapping.h>
+#include <linux/idr.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
+#include <linux/string.h>
 #include <asm/barrier.h>
 
 #include "sdxi.h"
@@ -43,6 +46,7 @@ struct sdxi_cxt {
 	struct sdxi_cxt_ctl *cxt_ctl;
 	dma_addr_t cxt_ctl_dma;
 
+	struct ida akey_ida;
 	struct sdxi_akey_table *akey_table;
 	dma_addr_t akey_table_dma;
 
@@ -65,5 +69,25 @@ void sdxi_working_cxt_exit(struct sdxi_cxt *cxt);
 struct sdxi_cxt *sdxi_kcxt_new(struct sdxi_dev *sdxi);
 
 void sdxi_cxt_push_doorbell(struct sdxi_cxt *cxt, u64 index);
+
+static inline struct sdxi_akey_ent *sdxi_alloc_akey(struct sdxi_cxt *cxt)
+{
+	unsigned int max = ARRAY_SIZE(cxt->akey_table->entry);
+	int idx = ida_alloc_max(&cxt->akey_ida, max, GFP_KERNEL);
+
+	return idx < 0 ? NULL : &cxt->akey_table->entry[idx];
+}
+
+static inline unsigned int sdxi_akey_index(const struct sdxi_cxt *cxt,
+					   const struct sdxi_akey_ent *akey)
+{
+	return akey - &cxt->akey_table->entry[0];
+}
+
+static inline void sdxi_free_akey(struct sdxi_cxt *cxt, struct sdxi_akey_ent *akey)
+{
+	memset(akey, 0, sizeof(*akey));
+	ida_free(&cxt->akey_ida, sdxi_akey_index(cxt, akey));
+}
 
 #endif /* __SDXI_SQ_H */
