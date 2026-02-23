@@ -62,7 +62,7 @@ struct sdxi_dma_chan {
 	struct sdxi_cxt *cxt;
 	unsigned int vector;
 	unsigned int irq;
-	u16 intr_akey;
+	struct sdxi_akey_ent *akey;
 };
 
 struct sdxi_dma_dev {
@@ -105,6 +105,7 @@ static struct sdxi_dma_desc *
 prep_memcpy_intr(struct dma_chan *dma_chan, const struct sdxi_copy *params)
 {
 	struct sdxi_cxt *cxt = to_sdxi_dma_chan(dma_chan)->cxt;
+	struct sdxi_akey_ent *akey = to_sdxi_dma_chan(dma_chan)->akey;
 	struct sdxi_completion *completion __free(sdxi_completion) = NULL;
 	struct sdxi_dma_desc *sddesc __free(kfree) = NULL;
 	struct sdxi_desc *copy, *intr;
@@ -129,7 +130,7 @@ prep_memcpy_intr(struct dma_chan *dma_chan, const struct sdxi_copy *params)
 
 	intr = sdxi_ring_resv_next(&sddesc->resv);
 	sdxi_encode_intr(intr, &(const struct sdxi_intr) {
-			.akey = to_sdxi_dma_chan(dma_chan)->intr_akey,
+			.akey = sdxi_akey_index(cxt, akey),
 		});
 	/* Raise the interrupt only after the copy has completed. */
 	sdxi_desc_set_fence(intr);
@@ -368,8 +369,6 @@ static irqreturn_t sdxi_dma_cxt_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-#define BAD_HARDCODED_AKEY_IDX 1
-
 static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
 {
 	struct sdxi_dev *sdxi = dev_get_drvdata(dma_chan->device->dev);
@@ -392,11 +391,14 @@ static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
 		goto free_vector;
 
 	sdchan->irq = irq;
+
+	sdchan->akey = sdxi_alloc_akey(sdchan->cxt);
+	if (!sdchan->akey)
+		goto free_vector;
 	/*
 	 * FIXME: this should all be pushed into the context setup.
 	 */
-	sdchan->intr_akey = BAD_HARDCODED_AKEY_IDX;
-	sdchan->cxt->akey_table->entry[BAD_HARDCODED_AKEY_IDX] = (struct sdxi_akey_ent) {
+	*sdchan->akey = (typeof(*sdchan->akey)) {
 		.intr_num = cpu_to_le16(FIELD_PREP(SDXI_AKEY_ENT_VL, 1) |
 					FIELD_PREP(SDXI_AKEY_ENT_IV, 1) |
 					FIELD_PREP(SDXI_AKEY_ENT_INTR_NUM,
@@ -406,16 +408,17 @@ static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
 	err = request_irq(sdchan->irq, sdxi_dma_cxt_irq,
 			  IRQF_TRIGGER_NONE, "SDXI DMAengine", sdchan);
 	if (err)
-		goto exit_cxt;
+		goto free_akey;
 
 	err = sdxi_adm_start_cxt(sdchan->cxt);
 	if (err)
 		goto free_irq;
 
 	return 0;
-
 free_irq:
 	free_irq(sdchan->irq, sdchan);
+free_akey:
+	sdxi_free_akey(sdchan->cxt, sdchan->akey);
 free_vector:
 	sdxi_free_vector(sdxi, vector);
 exit_cxt:
@@ -430,6 +433,7 @@ static void sdxi_dma_free_chan_resources(struct dma_chan *dma_chan)
 	sdxi_adm_stop_cxt(sdchan->cxt);
 	free_irq(sdchan->irq, sdchan);
 	sdxi_free_vector(sdchan->cxt->sdxi, sdchan->vector);
+	sdxi_free_akey(sdchan->cxt, sdchan->akey);
 	vchan_free_chan_resources(to_virt_chan(dma_chan));
 	sdxi_working_cxt_exit(sdchan->cxt);
 }
