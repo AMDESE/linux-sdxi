@@ -170,7 +170,6 @@ static struct dma_async_tx_descriptor *
 sdxi_dma_prep_memcpy(struct dma_chan *dma_chan, dma_addr_t dst,
 		     dma_addr_t src, size_t len, unsigned long flags)
 {
-	bool always_interrupt;
 	struct sdxi_dma_desc *sddesc;
 	struct sdxi_copy copy = {
 		.src = src,
@@ -187,15 +186,13 @@ sdxi_dma_prep_memcpy(struct dma_chan *dma_chan, dma_addr_t dst,
 	 */
 	if (sdxi_encode_copy(&(struct sdxi_desc){}, &copy))
 		return NULL;
-	/*
-	 * No attempt to batch/coalesce for now; raise an interrupt
-	 * for each descriptor completion.
-	 */
-	always_interrupt = true;
 
-	sddesc = ((flags & DMA_PREP_INTERRUPT) || always_interrupt) ?
+	sddesc = (flags & DMA_PREP_INTERRUPT) ?
 		prep_memcpy_intr(dma_chan, &copy) :
 		prep_memcpy_polled(dma_chan, &copy);
+
+	if (!sddesc)
+		return NULL;
 
 	return vchan_tx_prep(to_virt_chan(dma_chan), &sddesc->vdesc, flags);
 }
