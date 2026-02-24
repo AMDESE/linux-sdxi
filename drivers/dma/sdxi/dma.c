@@ -440,12 +440,6 @@ static void sdxi_dma_free_chan_resources(struct dma_chan *dma_chan)
 	sdxi_working_cxt_exit(sdchan->cxt);
 }
 
-static void add_channel(struct sdxi_dma_dev *sddev, struct sdxi_dma_chan *sdchan)
-{
-	sdchan->vchan.desc_free = sdxi_tx_desc_free;
-	vchan_init(&sdchan->vchan, &sddev->dma_dev);
-}
-
 int sdxi_dma_register(struct sdxi_dev *sdxi)
 {
 	struct device *dev = sdxi_to_dev(sdxi);
@@ -492,8 +486,12 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 	dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
 	INIT_LIST_HEAD(&dma_dev->channels);
 
-	for (size_t i = 0; i < sddev->nr_channels; ++i)
-		add_channel(sddev, &sddev->sdchan[i]);
+	for (size_t i = 0; i < sddev->nr_channels; ++i) {
+		struct sdxi_dma_chan *sdchan = &sddev->sdchan[i];
+
+		sdchan->vchan.desc_free = sdxi_tx_desc_free;
+		vchan_init(&sdchan->vchan, &sddev->dma_dev);
+	}
 
 	if ((err = dmaenginem_async_device_register(dma_dev)))
 		return dev_warn_probe(dev, err, "failed to register dma device\n");
