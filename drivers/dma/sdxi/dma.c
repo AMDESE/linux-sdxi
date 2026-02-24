@@ -13,6 +13,7 @@
 #include <linux/dmaengine.h>
 #include <linux/list.h>
 #include <linux/module.h>
+#include <linux/overflow.h>
 #include <linux/spinlock.h>
 
 #include "../dmaengine.h"
@@ -28,6 +29,10 @@
 static bool dma_engine;
 module_param(dma_engine, bool, 0644);
 MODULE_PARM_DESC(dma_engine, "Enable DMA engine interface (default: false)");
+
+static unsigned short dma_channels = 1;
+module_param(dma_channels, ushort, 0644);
+MODULE_PARM_DESC(dma_channels, "DMA channels per function (default: 1)");
 
 /*
  * This provider uses virt_dma_chan / virt_dma_desc.
@@ -67,7 +72,8 @@ struct sdxi_dma_chan {
 
 struct sdxi_dma_dev {
 	struct dma_device dma_dev;
-	struct sdxi_dma_chan sdchan;
+	size_t nr_channels;
+	struct sdxi_dma_chan sdchan[] __counted_by(nr_channels);
 };
 
 /*
@@ -453,6 +459,8 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 
 	if (!dma_engine)
 		return 0;
+	if (!dma_channels)
+		return 0;
 	/*
 	 * FIXME: This code assumes the device supports the interrupt
 	 * operation group. It's probably not a bad assumption, but
@@ -460,9 +468,12 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 	 * device's opgroups and bail if IntrGrp isn't implemented.
 	 */
 
-	sddev = devm_kzalloc(dev, sizeof(*sddev), GFP_KERNEL);
+	sddev = devm_kzalloc(dev, struct_size(sddev, sdchan, dma_channels),
+			     GFP_KERNEL);
 	if (!sddev)
 		return -ENOMEM;
+
+	sddev->nr_channels = dma_channels;
 
 	dma_dev = &sddev->dma_dev;
 	*dma_dev = (typeof(*dma_dev)) {
@@ -487,7 +498,8 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 	dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
 	INIT_LIST_HEAD(&dma_dev->channels);
 
-	add_channel(sddev, &sddev->sdchan);
+	for (size_t i = 0; i < sddev->nr_channels; ++i)
+		add_channel(sddev, &sddev->sdchan[i]);
 
 	if ((err = dmaenginem_async_device_register(dma_dev)))
 		return dev_warn_probe(dev, err, "failed to register dma device\n");
