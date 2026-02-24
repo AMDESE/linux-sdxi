@@ -26,10 +26,6 @@
 #include "ring.h"
 #include "sdxi.h"
 
-static bool dma_engine;
-module_param(dma_engine, bool, 0644);
-MODULE_PARM_DESC(dma_engine, "Enable DMA engine interface (default: false)");
-
 static unsigned short dma_channels = 1;
 module_param(dma_channels, ushort, 0644);
 MODULE_PARM_DESC(dma_channels, "DMA channels per function (default: 1)");
@@ -457,8 +453,6 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 	struct dma_device *dma_dev;
 	int err;
 
-	if (!dma_engine)
-		return 0;
 	if (!dma_channels)
 		return 0;
 	/*
