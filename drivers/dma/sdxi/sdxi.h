@@ -102,6 +102,7 @@ struct dma_pool;
 
 struct sdxi_dev {
 	struct device *dev;
+	resource_size_t dbs_bar;	/* doorbells base (BAR2) */
 	void __iomem *ctrl_regs;	/* virt addr of ctrl registers */
 	void __iomem *dbs;		/* virt addr of doorbells */
 
