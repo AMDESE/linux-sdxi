@@ -25,6 +25,7 @@ static const char sdxi_dev_name[] = "sdxi";
 static int sdxi_char_dev_major = -1;
 static struct class *sdxi_class;
 static struct device *sdxi_device;
+static refcount_t sdxi_device_users = REFCOUNT_INIT(0);
 
 /*********************/
 /* SUPPORT FUNCTIONS */
@@ -407,6 +408,9 @@ int sdxi_chardev_init(void)
 {
 	int err = 0;
 
+	if (refcount_inc_not_zero(&sdxi_device_users))
+		return 0;
+
 	sdxi_char_dev_major = register_chrdev(0, sdxi_dev_name, &sdxi_fops);
 	err = sdxi_char_dev_major;
 	if (err < 0)
@@ -424,6 +428,7 @@ int sdxi_chardev_init(void)
 	if (IS_ERR(sdxi_device))
 		goto err_device_create;
 
+	refcount_set(&sdxi_device_users, 1);
 	return 0;
 
 err_device_create:
@@ -436,6 +441,10 @@ err_register_chrdev:
 
 void sdxi_chardev_exit(void)
 {
+
+	if (!refcount_dec_and_test(&sdxi_device_users))
+		return;
+
 	device_destroy(sdxi_class, MKDEV(sdxi_char_dev_major, 0));
 	class_destroy(sdxi_class);
 	unregister_chrdev(sdxi_char_dev_major, sdxi_dev_name);
