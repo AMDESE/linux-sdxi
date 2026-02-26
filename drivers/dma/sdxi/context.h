@@ -31,8 +31,6 @@ struct sdxi_sq {
 
 	struct sdxi_cxt_sts *cxt_sts;
 	dma_addr_t cxt_sts_dma;
-
-	/* NB: define doorbell here */
 };
 
 struct sdxi_cxt {
