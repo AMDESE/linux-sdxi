@@ -190,6 +190,13 @@ static int sdxi_ioctl_create_cxt(struct file *filep, struct sdxi_process *p,
 		     FIELD_PREP(SDXI_AKEY_ENT_PR, privileged));
 	intr_num = (FIELD_PREP(SDXI_AKEY_ENT_VL, 1) |
 		    FIELD_PREP(SDXI_AKEY_ENT_PV, 1));
+	/*
+	 * HACK: The akey index that SNIA libsdxi expects to use in
+	 * its sample code is hard-coded to 1; we accommodate that
+	 * here. This is obviously not fit for upstream, but we keep
+	 * it until some method of akey allocation is exposed through
+	 * the uapi.
+	 */
 	cxt->akey_table->entry[1] = (struct sdxi_akey_ent) {
 		.intr_num = cpu_to_le16(intr_num),
 		.pasid = cpu_to_le32(pasid),
