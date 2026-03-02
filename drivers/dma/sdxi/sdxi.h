@@ -134,13 +134,6 @@ struct sdxi_dev {
 	struct sdxi_cxt *admin_cxt;	/* admin context */
 
 	const struct sdxi_bus_ops *bus_ops;
-	bool use_privileged_bits:1; /* Whether to set the 'pr' bit
-				     * within the portions of the
-				     * control structure hierarchy
-				     * that should be considered
-				     * private to the kernel, not
-				     * exposed to user space.
-				     */
 };
 
 static inline struct device *sdxi_to_dev(const struct sdxi_dev *sdxi)
