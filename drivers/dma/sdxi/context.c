@@ -21,15 +21,6 @@
 #include "ring.h"
 #include "sdxi.h"
 
-static bool force_pr_for_user_contexts;
-module_param(force_pr_for_user_contexts, bool, 0644);
-MODULE_PARM_DESC(force_pr_for_user_contexts,
-		 "Force-enable the 'pr' bit for user contexts. "
-		 "Not useful without set_pr_bits=1. "
-		 "This is a security hole and is intended for hardware "
-		 "validation only. "
-		 "(default: false)");
-
 /* Alloc sdxi_sq in kernel space */
 static struct sdxi_sq *sdxi_sq_alloc(struct sdxi_cxt *cxt, int ring_entries)
 {
@@ -426,8 +417,6 @@ struct sdxi_cxt *sdxi_working_cxt_init(struct sdxi_dev *sdxi,
 	switch (id) {
 	case SDXI_ANY_CXT_ID:  /* User context */
 		privileged = false;
-		if (force_pr_for_user_contexts)
-			privileged = true;
 		break;
 	default:  /* kernel context */
 		privileged = true;
