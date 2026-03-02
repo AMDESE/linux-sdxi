@@ -276,7 +276,7 @@ static void cleanup_cxt_tables(struct sdxi_dev *sdxi,
 	clear_cxt_table_entries(sdxi->l2_table, l1_table, cxt);
 }
 
-static struct sdxi_cxt *alloc_cxt(struct sdxi_dev *sdxi, bool privileged)
+static struct sdxi_cxt *alloc_cxt(struct sdxi_dev *sdxi)
 {
 	struct sdxi_cxt *cxt;
 	u16 id, l2_idx, l1_idx;
@@ -352,13 +352,13 @@ static void free_cxt(struct sdxi_cxt *cxt)
 }
 
 /* alloc context resources and populate context table */
-static struct sdxi_cxt *sdxi_cxt_alloc(struct sdxi_dev *sdxi, bool privileged)
+static struct sdxi_cxt *sdxi_cxt_alloc(struct sdxi_dev *sdxi)
 {
 	struct sdxi_cxt *cxt;
 
 	mutex_lock(&sdxi->cxt_lock);
 
-	cxt = alloc_cxt(sdxi, privileged);
+	cxt = alloc_cxt(sdxi);
 	if (!cxt)
 		goto drop_cxt_lock;
 
@@ -407,18 +407,8 @@ struct sdxi_cxt *sdxi_working_cxt_init(struct sdxi_dev *sdxi,
 {
 	struct sdxi_cxt *cxt;
 	struct sdxi_sq *sq;
-	bool privileged;
 
-	switch (id) {
-	case SDXI_ANY_CXT_ID:  /* User context */
-		privileged = false;
-		break;
-	default:  /* kernel context */
-		privileged = true;
-		break;
-	}
-
-	cxt = sdxi_cxt_alloc(sdxi, privileged);
+	cxt = sdxi_cxt_alloc(sdxi);
 	if (!cxt) {
 		sdxi_err(sdxi, "failed to alloc a new context\n");
 		return NULL;
@@ -454,7 +444,7 @@ err_cxt_id:
  */
 struct sdxi_cxt *sdxi_kcxt_new(struct sdxi_dev *sdxi)
 {
-	struct sdxi_cxt *cxt = sdxi_cxt_alloc(sdxi, true);
+	struct sdxi_cxt *cxt = sdxi_cxt_alloc(sdxi);
 	struct sdxi_sq *sq;
 
 	if (!cxt)
