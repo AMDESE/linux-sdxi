@@ -16,13 +16,17 @@ struct sdxi_completion *sdxi_completion_alloc(struct sdxi_dev *sdxi)
 	struct sdxi_cst_blk *cst_blk;
 	dma_addr_t cst_blk_dma;
 
-	sc = kmalloc(sizeof(*sc), GFP_KERNEL);
+	/*
+	 * Assume callers can't tolerate GFP_KERNEL and use
+	 * GFP_NOWAIT. Add a gfp_t flags parameter if that changes.
+	 */
+	sc = kmalloc(sizeof(*sc), GFP_NOWAIT);
 	if (!sc)
 		return NULL;
 
 	/* Should use a dma_pool. */
 	cst_blk = dma_alloc_coherent(sdxi_to_dev(sdxi), sizeof(*cst_blk),
-				     &cst_blk_dma, GFP_KERNEL);
+				     &cst_blk_dma, GFP_NOWAIT);
 	if (!cst_blk)
 		return NULL;
 
