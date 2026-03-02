@@ -180,9 +180,9 @@ sdxi_dma_prep_memcpy(struct dma_chan *dma_chan, dma_addr_t dst,
 	};
 
 	/*
-	 * temp hack: perform a trial encode to a dummy descriptor on
-	 * the stack so we can reject bad inputs without touching the
-	 * ring state.
+	 * Perform a trial encode to a dummy descriptor on the stack
+	 * so we can reject bad inputs without touching the ring
+	 * state.
 	 */
 	if (sdxi_encode_copy(&(struct sdxi_desc){}, &copy))
 		return NULL;
