@@ -29,10 +29,6 @@ enum sdxi_mmio_bars {
 	SDXI_PCI_BAR_DOORBELL = 2,
 };
 
-static bool enabled;
-module_param(enabled, bool, 0644);
-MODULE_PARM_DESC(enabled, "Enable SDXI feature support (default: false)");
-
 static struct pci_dev *sdxi_to_pci_dev(const struct sdxi_dev *sdxi)
 {
 	return to_pci_dev(sdxi_to_dev(sdxi));
@@ -117,12 +113,6 @@ static const struct sdxi_bus_ops sdxi_pci_ops = {
 static int sdxi_pci_probe(struct pci_dev *pdev,
 			  const struct pci_device_id *id)
 {
-	if (!enabled) {
-		return dev_err_probe(&pdev->dev, -EPERM,
-				     "sdxi disabled by default. "
-				     "Use module parameter enabled=1 to turn on.\n");
-	}
-
 	return sdxi_register(&pdev->dev, &sdxi_pci_ops);
 }
 
