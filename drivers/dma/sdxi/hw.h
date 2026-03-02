@@ -52,7 +52,6 @@ struct sdxi_cxt_l1_ent {
 #define SDXI_CXT_L1_ENT_VL             BIT_ULL(0)
 #define SDXI_CXT_L1_ENT_KA             BIT_ULL(1)
 #define SDXI_CXT_L1_ENT_PV             BIT_ULL(2)
-#define SDXI_CXT_L1_ENT_PR             BIT_ULL(5)
 #define SDXI_CXT_L1_ENT_CXT_CTL_PTR    GENMASK_ULL(63, 6)
 	__le64 akey_ptr;
 #define SDXI_CXT_L1_ENT_AKEY_SZ        GENMASK_ULL(3, 0)
