@@ -108,15 +108,13 @@ prep_memcpy_intr(struct dma_chan *dma_chan, const struct sdxi_copy *params)
 {
 	struct sdxi_cxt *cxt = to_sdxi_dma_chan(dma_chan)->cxt;
 	struct sdxi_akey_ent *akey = to_sdxi_dma_chan(dma_chan)->akey;
-	struct sdxi_completion *completion __free(sdxi_completion) = NULL;
-	struct sdxi_dma_desc *sddesc __free(kfree) = NULL;
 	struct sdxi_desc *copy, *intr;
 
-	completion = sdxi_completion_alloc(cxt->sdxi);
-	if (!completion)
+	struct sdxi_completion *comp __free(sdxi_completion) = sdxi_completion_alloc(cxt->sdxi);
+	if (!comp)
 		return NULL;
 
-	sddesc = kzalloc(sizeof(*sddesc), GFP_NOWAIT);
+	struct sdxi_dma_desc *sddesc __free(kfree) = kzalloc(sizeof(*sddesc), GFP_NOWAIT);
 	if (!sddesc)
 		return NULL;
 
@@ -126,9 +124,9 @@ prep_memcpy_intr(struct dma_chan *dma_chan, const struct sdxi_copy *params)
 	copy = sdxi_ring_resv_next(&sddesc->resv);
 	(void)sdxi_encode_copy(copy, params); /* Caller checked validity. */
 	sdxi_desc_set_fence(copy); /* Conservatively fence every descriptor. */
-	sdxi_completion_attach(copy, completion);
+	sdxi_completion_attach(copy, comp);
 
-	sddesc->completion = no_free_ptr(completion);
+	sddesc->completion = no_free_ptr(comp);
 
 	intr = sdxi_ring_resv_next(&sddesc->resv);
 	sdxi_encode_intr(intr, &(const struct sdxi_intr) {
@@ -143,15 +141,13 @@ static struct sdxi_dma_desc *
 prep_memcpy_polled(struct dma_chan *dma_chan, const struct sdxi_copy *params)
 {
 	struct sdxi_cxt *cxt = to_sdxi_dma_chan(dma_chan)->cxt;
-	struct sdxi_completion *completion __free(sdxi_completion) = NULL;
-	struct sdxi_dma_desc *sddesc __free(kfree) = NULL;
 	struct sdxi_desc *copy;
 
-	completion = sdxi_completion_alloc(cxt->sdxi);
-	if (!completion)
+	struct sdxi_completion *comp __free(sdxi_completion) = sdxi_completion_alloc(cxt->sdxi);
+	if (!comp)
 		return NULL;
 
-	sddesc = kzalloc(sizeof(*sddesc), GFP_NOWAIT);
+	struct sdxi_dma_desc *sddesc __free(kfree) = kzalloc(sizeof(*sddesc), GFP_NOWAIT);
 	if (!sddesc)
 		return NULL;
 
@@ -160,9 +156,9 @@ prep_memcpy_polled(struct dma_chan *dma_chan, const struct sdxi_copy *params)
 
 	copy = sdxi_ring_resv_next(&sddesc->resv);
 	(void)sdxi_encode_copy(copy, params); /* Caller checked validity. */
-	sdxi_completion_attach(copy, completion);
+	sdxi_completion_attach(copy, comp);
 
-	sddesc->completion = no_free_ptr(completion);
+	sddesc->completion = no_free_ptr(comp);
 	return_ptr(sddesc);
 }
 
