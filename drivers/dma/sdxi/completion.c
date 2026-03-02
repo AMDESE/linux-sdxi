@@ -1,3 +1,4 @@
+#include <linux/cleanup.h>
 #include <linux/slab.h>
 #include <linux/dma-mapping.h>
 
