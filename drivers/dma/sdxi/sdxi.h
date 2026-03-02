@@ -175,18 +175,6 @@ static inline int sdxi_alloc_vector(struct sdxi_dev *sdxi)
 }
 
 /**
- * sdxi_reserve_vector() - Reserve a specific interrupt vector.
- *
- * Same lifetime considerations as sdxi_alloc_vector().
- */
-static inline int sdxi_reserve_vector(struct sdxi_dev *sdxi, unsigned int nr)
-{
-	WARN_ON_ONCE(nr >= sdxi->nr_vectors);
-	WARN_ON_ONCE(ida_exists(&sdxi->vectors, nr));
-	return ida_alloc_range(&sdxi->vectors, nr, nr, GFP_KERNEL);
-}
-
-/**
  * sdxi_free_vector() - Release a previously allocated index.
  */
 static inline void sdxi_free_vector(struct sdxi_dev *sdxi, unsigned int nr)
