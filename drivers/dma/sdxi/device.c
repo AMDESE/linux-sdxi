@@ -185,13 +185,13 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 
 	/* Determine which spec version the function implements. */
 	version = sdxi_read64(sdxi, SDXI_MMIO_VERSION);
-	sdxi->sdxi_version = (sdxi_version_t){
+	sdxi->version = (typeof(sdxi->version)){
 		.major = FIELD_GET(SDXI_MMIO_VERSION_MAJOR, version),
 		.minor = FIELD_GET(SDXI_MMIO_VERSION_MINOR, version),
 	};
 
 	sdxi_info(sdxi, "SDXI %u.%u device found\n",
-		  sdxi->sdxi_version.major, sdxi->sdxi_version.minor);
+		  sdxi->version.major, sdxi->version.minor);
 
 	/*
 	 * 1.a. Discover limits and implemented features via MMIO_CAP0
