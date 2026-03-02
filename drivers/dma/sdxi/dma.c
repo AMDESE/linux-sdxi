@@ -241,8 +241,7 @@ static void sdxi_dma_issue_pending(struct dma_chan *dma_chan)
 
 	scoped_guard(spinlock_irqsave, &vchan->lock) {
 		/*
-		 * This can happen with racing submitters. We could
-		 * speculatively check this without taking the lock?
+		 * This can happen with racing submitters.
 		 */
 		if (list_empty(&vchan->desc_submitted))
 			return;
