@@ -318,18 +318,17 @@ static void sdxi_dma_synchronize(struct dma_chan *dma_chan)
 	if (sdxi_ring_reserve(cxt->ring_state, 1, &resv))
 		return;
 
-	struct sdxi_completion *sc = sdxi_completion_alloc(cxt->sdxi);
-	if (!sc)
+	struct sdxi_completion *comp __free(sdxi_completion) = sdxi_completion_alloc(cxt->sdxi);
+	if (!comp)
 		return;
 
 	nop = sdxi_ring_resv_next(&resv);
 	sdxi_serialize_nop(nop);
-	sdxi_completion_attach(nop, sc);
+	sdxi_completion_attach(nop, comp);
 	sdxi_desc_set_fence(nop);
 	sdxi_desc_make_valid(nop);
 	sdxi_cxt_push_doorbell(cxt, sdxi_ring_resv_dbval(&resv));
-	sdxi_completion_poll(sc);
-	sdxi_completion_free(sc);
+	sdxi_completion_poll(comp);
 
 	vchan_synchronize(to_virt_chan(dma_chan));
 }
