@@ -130,8 +130,7 @@ struct sdxi_dev {
 	unsigned int nr_vectors;
 	struct ida vectors;
 
-	/* special contexts */
-	struct sdxi_cxt *admin_cxt;	/* admin context */
+	struct sdxi_cxt *admin_cxt;
 
 	const struct sdxi_bus_ops *bus_ops;
 };
