@@ -20,7 +20,6 @@
 #include "hw.h"
 #include "ring.h"
 #include "sdxi.h"
-#include "trace.h"
 
 static bool force_pr_for_user_contexts;
 module_param(force_pr_for_user_contexts, bool, 0644);
@@ -100,9 +99,6 @@ static struct sdxi_sq *sdxi_sq_alloc(struct sdxi_cxt *cxt, int ring_entries)
 		 sq->write_index, &sq->write_index_dma,
 		 sq->cxt_sts, &sq->cxt_sts_dma);
 
-	/* dump SQ info */
-	trace_sdxi_create_sq(cxt, sq);
-
 	return sq;
 
 free_cxt_sts:
@@ -122,8 +118,6 @@ static void sdxi_sq_free(struct sdxi_sq *sq)
 
 	if (!cxt)
 		return;
-
-	trace_sdxi_free_sq(cxt, sq);
 
 	dma_pool_free(sdxi->write_index_pool, sq->write_index, sq->write_index_dma);
 	dma_pool_free(sdxi->cxt_sts_pool, sq->cxt_sts, sq->cxt_sts_dma);
@@ -394,7 +388,6 @@ static struct sdxi_cxt *sdxi_cxt_alloc(struct sdxi_dev *sdxi, bool privileged)
 	if (config_cxt_tables(sdxi, cxt))
 		goto release_ring_state;
 
-	trace_sdxi_create_cxt(sdxi, cxt);
 	mutex_unlock(&sdxi->cxt_lock);
 	return cxt;
 
@@ -413,8 +406,6 @@ drop_cxt_lock:
 static void sdxi_cxt_free(struct sdxi_cxt *cxt)
 {
 	struct sdxi_dev *sdxi = cxt->sdxi;
-
-	trace_sdxi_free_cxt(sdxi, cxt);
 
 	mutex_lock(&sdxi->cxt_lock);
 

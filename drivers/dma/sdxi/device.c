@@ -21,8 +21,6 @@
 #include "dma.h"
 #include "hw.h"
 #include "sdxi.h"
-#define CREATE_TRACE_POINTS
-#include "trace.h"
 
 static bool set_pr_bits;
 module_param(set_pr_bits, bool, 0644);

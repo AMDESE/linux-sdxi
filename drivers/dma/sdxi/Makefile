@@ -8,8 +8,7 @@ sdxi-objs += \
 	descriptor.o  \
 	device.o      \
 	dma.o         \
-	ring.o        \
-	trace.o
+	ring.o
 
 sdxi-$(CONFIG_PCI_MSI) += pci.o
 
