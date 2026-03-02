@@ -13,7 +13,6 @@ struct sdxi_completion {
 
 struct sdxi_completion *sdxi_completion_alloc(struct sdxi_dev *sdxi)
 {
-	struct sdxi_completion *sc __free(kfree);
 	struct sdxi_cst_blk *cst_blk;
 	dma_addr_t cst_blk_dma;
 
@@ -21,7 +20,7 @@ struct sdxi_completion *sdxi_completion_alloc(struct sdxi_dev *sdxi)
 	 * Assume callers can't tolerate GFP_KERNEL and use
 	 * GFP_NOWAIT. Add a gfp_t flags parameter if that changes.
 	 */
-	sc = kmalloc(sizeof(*sc), GFP_NOWAIT);
+	struct sdxi_completion *sc __free(kfree) = kmalloc(sizeof(*sc), GFP_NOWAIT);
 	if (!sc)
 		return NULL;
 
