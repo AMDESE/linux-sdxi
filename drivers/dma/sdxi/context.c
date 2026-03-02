@@ -325,7 +325,6 @@ static struct sdxi_cxt *alloc_cxt(struct sdxi_dev *sdxi, bool privileged)
 	cxt->id = id;
 	cxt->db_base = sdxi->dbs_bar + id * sdxi->db_stride;
 	cxt->db = sdxi->dbs + id * sdxi->db_stride;
-	cxt->privileged = privileged;
 	ida_init(&cxt->akey_ida);
 
 	sdxi->cxt_array[l2_idx][l1_idx] = cxt;

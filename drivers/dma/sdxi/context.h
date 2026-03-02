@@ -36,7 +36,6 @@ struct sdxi_sq {
 struct sdxi_cxt {
 	struct sdxi_dev *sdxi;	/* owner */
 	unsigned int id;
-	bool privileged;
 
 	resource_size_t db_base;	/* doorbell MMIO base addr */
 	__le64 __iomem *db;		/* doorbell virt addr */
