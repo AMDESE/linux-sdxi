@@ -167,18 +167,14 @@ static void set_cxt_l1_entry(struct sdxi_dev *sdxi,
 	u64 akey_ptr;
 	u16 intr_num;
 	u32 misc0;
-	bool pr;
 
 	if (!cxt) {
 		memset(l1_entry, 0, sizeof(*l1_entry));
 		return;
 	}
 
-	pr = sdxi->use_privileged_bits && cxt->privileged;
-
 	cxt_ctl_ptr = (FIELD_PREP(SDXI_CXT_L1_ENT_VL, 1) |
 		       FIELD_PREP(SDXI_CXT_L1_ENT_KA, 1) |
-		       FIELD_PREP(SDXI_CXT_L1_ENT_PR, pr) |
 		       FIELD_PREP(SDXI_CXT_L1_ENT_CXT_CTL_PTR,
 				  cxt->cxt_ctl_dma >> L1_CXT_CTRL_PTR_SHIFT));
 	akey_ptr = (FIELD_PREP(SDXI_CXT_L1_ENT_AKEY_SZ,
