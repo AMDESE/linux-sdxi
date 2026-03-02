@@ -34,8 +34,6 @@
 #define L2_TABLE_SIZE		4096
 #define L1_TABLE_SIZE		4096
 
-#define OP_TYPE_ERRLOG          0x7f7
-
 #define DESC_RING_BASE_PTR_SHIFT	6
 #define CXT_STATUS_PTR_SHIFT		4
 #define WRT_INDEX_PTR_SHIFT		3
@@ -133,10 +131,6 @@ struct sdxi_dev {
 
 	unsigned int nr_vectors;
 	struct ida vectors;
-
-	/* error log */
-	struct sdxi_errlog_hd_ent *err_log;
-	dma_addr_t err_log_dma;
 
 	/* special contexts */
 	struct sdxi_cxt *admin_cxt;	/* admin context */

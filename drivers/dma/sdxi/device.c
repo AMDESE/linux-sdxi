@@ -20,7 +20,6 @@
 #include "descriptor.h"
 #include "dma.h"
 #include "hw.h"
-#include "error.h"
 #include "sdxi.h"
 #define CREATE_TRACE_POINTS
 #include "trace.h"
@@ -290,12 +289,11 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	 * reset values are sane.
 	 *
 	 * 6. If restoring saved state, adjust as appropriate. (We're not.)
+	 *
+	 * 7. Initialize error log according to "Error Log
+	 * Initialization." This is not strictly necessary and is
+	 * omitted for now.
 	 */
-
-	/* 7. Initialize error log according to "Error Log Initialization". */
-	err = sdxi_error_init(sdxi);
-	if (err)
-		goto admin_cxt_exit;
 
 	/*
 	 * 8. "Software may also need to configure and enable
@@ -309,7 +307,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	 */
 	err = sdxi_dev_start(sdxi);
 	if (err)
-		goto error_exit;
+		goto admin_cxt_exit;
 
 	/*
 	 * 10. Jump start the admin context. This step refers to
@@ -322,8 +320,6 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 
 	return 0;
 
-error_exit:
-	sdxi_error_exit(sdxi);
 admin_cxt_exit:
 	sdxi_working_cxt_exit(sdxi->admin_cxt);
 	return err;
@@ -382,7 +378,6 @@ static void sdxi_device_exit(struct sdxi_dev *sdxi)
 	kfree(sdxi->cxt_array[0]);  /* ugh */
 
 	sdxi_stop(sdxi);
-	sdxi_error_exit(sdxi);
 }
 
 int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)

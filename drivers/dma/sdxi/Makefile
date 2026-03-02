@@ -8,7 +8,6 @@ sdxi-objs += \
 	descriptor.o  \
 	device.o      \
 	dma.o         \
-	error.o       \
 	ioctl.o       \
 	process.o     \
 	ring.o        \
