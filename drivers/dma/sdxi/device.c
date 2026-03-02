@@ -349,13 +349,11 @@ static int sdxi_device_init(struct sdxi_dev *sdxi)
 		return err;
 
 	sdxi_dma_register(sdxi);
-	sdxi_chardev_init();
 	return 0;
 }
 
 static void sdxi_device_exit(struct sdxi_dev *sdxi)
 {
-	sdxi_chardev_exit();
 	/* Walk sdxi->cxt_array freeing any allocated rows. */
 	for (size_t i = 0; i < L2_TABLE_ENTRIES; ++i) {
 		if (!sdxi->cxt_array[i])

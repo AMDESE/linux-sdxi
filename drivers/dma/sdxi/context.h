@@ -50,8 +50,6 @@ struct sdxi_cxt {
 
 	struct sdxi_sq *sq;
 
-	struct sdxi_process *process;	/* process reprsentation */
-
 	struct sdxi_ring_state *ring_state;
 };
 

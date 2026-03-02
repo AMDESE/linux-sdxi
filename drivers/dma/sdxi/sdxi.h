@@ -207,10 +207,6 @@ sdxi_dev_supports_privileged_address_space(struct sdxi_dev *sdxi)
 int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops);
 void sdxi_unregister(struct device *dev);
 
-/* Chardev (IOCTL) */
-int sdxi_chardev_init(void);
-void sdxi_chardev_exit(void);
-
 static inline u64 sdxi_read64(const struct sdxi_dev *sdxi, enum sdxi_reg reg)
 {
 	return ioread64(sdxi->ctrl_regs + reg);
