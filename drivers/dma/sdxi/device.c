@@ -203,17 +203,6 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	sdxi_info(sdxi, "SDXI %u.%u device found\n",
 		  sdxi->sdxi_version.major, sdxi->sdxi_version.minor);
 
-	if (sdxi_dev_supports_privileged_address_space(sdxi) && set_pr_bits) {
-		u64 ctl0 = sdxi_read64(sdxi, SDXI_MMIO_CTL0);
-
-		FIELD_MODIFY(SDXI_MMIO_CTL0_FN_PR, &ctl0, 1);
-		sdxi_write64(sdxi, SDXI_MMIO_CTL0, ctl0);
-
-		sdxi->use_privileged_bits = true;
-		sdxi_dbg(sdxi,
-			 "Setting 'pr' bit on kernel-private control structures\n");
-	}
-
 	/*
 	 * 1.a. Discover limits and implemented features via MMIO_CAP0
 	 * and MMIO_CAP1.
