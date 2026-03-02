@@ -819,7 +819,8 @@ struct dma_filter {
  * @descriptor_reuse: a submitted transfer can be resubmitted after completion
  * @residue_granularity: granularity of the transfer residue reported
  *	by tx_status
- * @device_alloc_chan_resources: allocate DMA channel resources
+ * @device_alloc_chan_resources: allocate resources and return the
+ *	number of allocated descriptors
  * @device_router_config: optional callback for DMA router configuration
  * @device_free_chan_resources: release DMA channel's resources
  * @device_prep_dma_memcpy: prepares a memcpy operation
