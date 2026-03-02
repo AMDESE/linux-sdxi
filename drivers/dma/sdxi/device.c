@@ -22,15 +22,6 @@
 #include "hw.h"
 #include "sdxi.h"
 
-static bool set_pr_bits;
-module_param(set_pr_bits, bool, 0644);
-MODULE_PARM_DESC(set_pr_bits,
-		 "Set the 'pr' bits on kernel-private SDXI "
-		 "control structures when the underlying bus supports privileged "
-		 "address space and the function has been configured to use it "
-		 "(e.g. PCIe PASID Privileged Mode) "
-		 "(default: false)");
-
 enum sdxi_fn_gsv {
 	SDXI_GSV_STOP,
 	SDXI_GSV_INIT,
