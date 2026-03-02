@@ -92,22 +92,9 @@ static int sdxi_pci_get_irq(struct sdxi_dev *sdxi, unsigned int nr)
 	return pci_irq_vector(sdxi_to_pci_dev(sdxi), nr);
 }
 
-static bool sdxi_pci_supports_privileged_addrspace(struct sdxi_dev *sdxi)
-{
-#ifdef CONFIG_PCI_PASID
-	struct pci_dev *pdev = sdxi_to_pci_dev(sdxi);
-
-	return pdev->pasid_enabled &&
-		(pdev->pasid_features & PCI_PASID_CAP_PRIV);
-#else
-	return false;
-#endif
-}
-
 static const struct sdxi_bus_ops sdxi_pci_ops = {
 	.init = sdxi_pci_init,
 	.get_irq = sdxi_pci_get_irq,
-	.supports_privileged_addrspace = sdxi_pci_supports_privileged_addrspace,
 };
 
 static int sdxi_pci_probe(struct pci_dev *pdev,
