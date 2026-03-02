@@ -87,12 +87,6 @@ struct sdxi_bus_ops {
 	 * @get_irq: Map device interrupt index to Linux IRQ number.
 	 */
 	int (*get_irq)(struct sdxi_dev *sdxi, unsigned int index);
-	/**
-	 * @supports_privileged_addrspace:
-	 *    Whether the device supports privileged address spaces,
-	 *    e.g. via PCIe's PASID Privileged Mode.
-	 */
-	bool (*supports_privileged_addrspace)(struct sdxi_dev *sdxi);
 };
 
 struct device;
@@ -192,16 +186,6 @@ static inline int sdxi_vector_to_irq(struct sdxi_dev *sdxi, unsigned int nr)
 	/* Moan if the index isn't currently allocated. */
 	WARN_ON_ONCE(!ida_exists(&sdxi->vectors, nr));
 	return sdxi->bus_ops->get_irq(sdxi, nr);
-}
-
-static inline bool
-sdxi_dev_supports_privileged_address_space(struct sdxi_dev *sdxi)
-{
-	if (!sdxi_dev_compatible(sdxi, SDXI_VERSION_1_1))
-		return false;
-	return sdxi->bus_ops->supports_privileged_addrspace ?
-		sdxi->bus_ops->supports_privileged_addrspace(sdxi) :
-		false;
 }
 
 int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops);
