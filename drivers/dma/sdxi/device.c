@@ -14,6 +14,7 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/pci.h>
+#include <linux/xarray.h>
 #include <asm/mmu.h>
 
 #include "context.h"
@@ -371,6 +372,7 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 	sdxi->dev = dev;
 	sdxi->bus_ops = ops;
 	ida_init(&sdxi->vectors);
+	xa_init_flags(&sdxi->client_cxts, XA_FLAGS_ALLOC);
 	dev_set_drvdata(dev, sdxi);
 
 	err = sdxi->bus_ops->init(sdxi);
@@ -385,5 +387,7 @@ void sdxi_unregister(struct device *dev)
 	struct sdxi_dev *sdxi = dev_get_drvdata(dev);
 
 	sdxi_device_exit(sdxi);
+	xa_destroy(&sdxi->client_cxts);
 	ida_destroy(&sdxi->vectors);
+
 }
