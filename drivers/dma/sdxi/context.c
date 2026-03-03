@@ -438,6 +438,38 @@ err_cxt_id:
 	return NULL;
 }
 
+struct sdxi_cxt *sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
+{
+	struct sdxi_cxt *cxt;
+	struct sdxi_sq *sq;
+
+	cxt = sdxi_cxt_alloc(sdxi);
+	if (!cxt) {
+		sdxi_err(sdxi, "failed to alloc a new context\n");
+		return NULL;
+	}
+
+	/* Ensure this is the first context allocated */
+	if (WARN_ON(cxt->id != SDXI_ADMIN_CXT_ID))
+		return NULL;
+
+	sq = sdxi_sq_alloc_default(cxt);
+	if (!sq) {
+		sdxi_err(sdxi, "failed to alloc a submission queue (sq)\n");
+		goto err_sq_alloc;
+	}
+
+	sdxi_ring_state_init(cxt->ring_state, &sq->cxt_sts->read_index,
+			     sq->write_index, sq->ring_entries, sq->desc_ring);
+
+	return cxt;
+
+err_sq_alloc:
+	sdxi_cxt_free(cxt);
+
+	return NULL;
+}
+
 /*
  * Allocate a context for in-kernel use. Starting the context is the
  * caller's responsibility.

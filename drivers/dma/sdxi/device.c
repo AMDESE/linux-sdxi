@@ -258,7 +258,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	 * The admin context will not consume descriptors until we
 	 * write its doorbell later.
 	 */
-	sdxi->admin_cxt = sdxi_working_cxt_init(sdxi, SDXI_ADMIN_CXT_ID);
+	sdxi->admin_cxt = sdxi_admin_cxt_init(sdxi);
 	if (!sdxi->admin_cxt)
 		return -ENOMEM;
 
