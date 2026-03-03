@@ -402,42 +402,6 @@ static void sdxi_cxt_free(struct sdxi_cxt *cxt)
 	mutex_unlock(&sdxi->cxt_lock);
 }
 
-struct sdxi_cxt *sdxi_working_cxt_init(struct sdxi_dev *sdxi,
-				       enum sdxi_cxt_id id)
-{
-	struct sdxi_cxt *cxt;
-	struct sdxi_sq *sq;
-
-	cxt = sdxi_cxt_alloc(sdxi);
-	if (!cxt) {
-		sdxi_err(sdxi, "failed to alloc a new context\n");
-		return NULL;
-	}
-
-	/* check if context ID matches */
-	if (id < SDXI_ANY_CXT_ID && cxt->id != id) {
-		sdxi_err(sdxi, "failed to alloc a context with id=%d\n", id);
-		goto err_cxt_id;
-	}
-
-	sq = sdxi_sq_alloc_default(cxt);
-	if (!sq) {
-		sdxi_err(sdxi, "failed to alloc a submission queue (sq)\n");
-		goto err_sq_alloc;
-	}
-
-	sdxi_ring_state_init(cxt->ring_state, &sq->cxt_sts->read_index,
-			     sq->write_index, sq->ring_entries, sq->desc_ring);
-
-	return cxt;
-
-err_sq_alloc:
-err_cxt_id:
-	sdxi_cxt_free(cxt);
-
-	return NULL;
-}
-
 struct sdxi_cxt *sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
 {
 	struct sdxi_cxt *cxt;
