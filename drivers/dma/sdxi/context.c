@@ -286,7 +286,6 @@ static struct sdxi_cxt *alloc_cxt(struct sdxi_dev *sdxi)
 
 	cxt->sdxi = sdxi;
 	cxt->id = id;
-	cxt->db_base = sdxi->dbs_bar + id * sdxi->db_stride;
 	cxt->db = sdxi->dbs + id * sdxi->db_stride;
 	ida_init(&cxt->akey_ida);
 

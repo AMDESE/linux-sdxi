@@ -37,7 +37,6 @@ struct sdxi_cxt {
 	struct sdxi_dev *sdxi;	/* owner */
 	unsigned int id;
 
-	resource_size_t db_base;	/* doorbell MMIO base addr */
 	__le64 __iomem *db;		/* doorbell virt addr */
 
 	struct sdxi_cxt_ctl *cxt_ctl;
