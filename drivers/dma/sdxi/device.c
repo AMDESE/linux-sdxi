@@ -209,7 +209,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	cap1 = sdxi_read64(sdxi, SDXI_MMIO_CAP1);
 	sdxi->max_akeys = SZ_256;
 	sdxi->max_akeys *= 1U << FIELD_GET(SDXI_MMIO_CAP1_MAX_AKEY_SZ, cap1);
-	sdxi->max_cxts = 1 + FIELD_GET(SDXI_MMIO_CAP1_MAX_CXT, cap1);
+	sdxi->max_cxtid = FIELD_GET(SDXI_MMIO_CAP1_MAX_CXT, cap1);
 	sdxi->op_grp_cap = FIELD_GET(SDXI_MMIO_CAP1_OPB_000_CAP, cap1);
 
 	/*
@@ -231,7 +231,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	sdxi_dbg(sdxi,
 		 "sfunc:%#x descmax:%llu dbstride:%#x akeymax:%u cxtmax:%u opgrps:%#x\n",
 		 sdxi->sfunc, sdxi->max_ring_entries, sdxi->db_stride,
-		 sdxi->max_akeys, sdxi->max_cxts, sdxi->op_grp_cap);
+		 sdxi->max_akeys, sdxi->max_cxtid, sdxi->op_grp_cap);
 
 	/* 2.a-2.b. Allocate and zero the 4KB Context Level 2 Table */
 	sdxi->l2_table = dmam_alloc_coherent(sdxi_to_dev(sdxi), L2_TABLE_SIZE,

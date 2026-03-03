@@ -274,7 +274,7 @@ static void cleanup_cxt_tables(struct sdxi_dev *sdxi,
 
 static struct sdxi_cxt *alloc_cxt(struct sdxi_dev *sdxi)
 {
-	struct xa_limit limit = XA_LIMIT(0, sdxi->max_cxts);
+	struct xa_limit limit = XA_LIMIT(0, sdxi->max_cxtid);
 	u32 id;
 
 	struct sdxi_cxt *cxt __free(kfree) = kzalloc(sizeof(*cxt), GFP_KERNEL);

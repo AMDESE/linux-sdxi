@@ -111,7 +111,7 @@ struct sdxi_dev {
 	u64 max_ring_entries;		/* max # of ring entries supported */
 
 	u32 max_akeys;			/* max akey # supported */
-	u32 max_cxts;			/* max contexts # supported */
+	u16 max_cxtid;			/* Maximum context ID allowed. */
 	u32 op_grp_cap;			/* supported operatation group cap */
 
 	/* context management */
