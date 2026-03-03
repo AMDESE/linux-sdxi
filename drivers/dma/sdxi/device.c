@@ -17,6 +17,7 @@
 #include <linux/xarray.h>
 #include <asm/mmu.h>
 
+#include "admin.h"
 #include "context.h"
 #include "dma.h"
 #include "hw.h"
@@ -336,26 +337,16 @@ static int sdxi_device_init(struct sdxi_dev *sdxi)
 
 static void sdxi_device_exit(struct sdxi_dev *sdxi)
 {
-	/* Walk sdxi->cxt_array freeing any allocated rows. */
-	for (size_t i = 0; i < L2_TABLE_ENTRIES; ++i) {
-		if (!sdxi->cxt_array[i])
-			continue;
-		/* When a context is released its entry in the table should be NULL. */
-		for (size_t j = 0; j < L1_TABLE_ENTRIES; ++j) {
-			struct sdxi_cxt *cxt = sdxi->cxt_array[i][j];
+	struct sdxi_cxt *cxt;
+	unsigned long index;
 
-			if (!cxt)
-				continue;
-			if (cxt->id != 0)  /* admin context shutdown is last */
-				sdxi_working_cxt_exit(cxt);
-			sdxi->cxt_array[i][j] = NULL;
-		}
-		if (i != 0)  /* another special case for admin cxt */
-			kfree(sdxi->cxt_array[i]);
+	xa_for_each(&sdxi->client_cxts, index, cxt) {
+		if (sdxi_cxt_is_admin(cxt))
+			continue;
+		sdxi_working_cxt_exit(cxt);
 	}
 
 	sdxi_working_cxt_exit(sdxi->admin_cxt);
-	kfree(sdxi->cxt_array[0]);  /* ugh */
 
 	sdxi_stop(sdxi);
 }

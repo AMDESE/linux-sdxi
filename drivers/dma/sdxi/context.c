@@ -274,39 +274,14 @@ static void cleanup_cxt_tables(struct sdxi_dev *sdxi,
 
 static struct sdxi_cxt *alloc_cxt(struct sdxi_dev *sdxi)
 {
-	struct sdxi_cxt *cxt;
-	u16 id, l2_idx, l1_idx;
+	struct xa_limit limit = XA_LIMIT(0, sdxi->max_cxts);
+	u32 id;
 
-	if (sdxi->cxt_count >= sdxi->max_cxts)
-		return NULL;
-
-	/* search for an empty context slot */
-	for (id = 0; id < sdxi->max_cxts; id++) {
-		l2_idx = ID_TO_L2_INDEX(id);
-		l1_idx = ID_TO_L1_INDEX(id);
-
-		if (sdxi->cxt_array[l2_idx] == NULL) {
-			struct sdxi_cxt **ptr;
-
-			ptr = kcalloc(L1_TABLE_ENTRIES, sizeof(ptr[0]),
-				      GFP_KERNEL);
-			if (!ptr)
-				return NULL;
-			sdxi->cxt_array[l2_idx] = ptr;
-		}
-
-		cxt = (sdxi->cxt_array)[l2_idx][l1_idx];
-		/* found one empty slot */
-		if (!cxt)
-			break;
-	}
-
-	/* nothing found, bail... */
-	if (id == sdxi->max_cxts)
-		return NULL;
-
-	cxt = kzalloc(sizeof(*cxt), GFP_KERNEL);
+	struct sdxi_cxt *cxt __free(kfree) = kzalloc(sizeof(*cxt), GFP_KERNEL);
 	if (!cxt)
+		return NULL;
+
+	if (xa_alloc(&sdxi->client_cxts, &id, cxt, limit, GFP_KERNEL))
 		return NULL;
 
 	cxt->sdxi = sdxi;
@@ -315,28 +290,22 @@ static struct sdxi_cxt *alloc_cxt(struct sdxi_dev *sdxi)
 	cxt->db = sdxi->dbs + id * sdxi->db_stride;
 	ida_init(&cxt->akey_ida);
 
-	sdxi->cxt_array[l2_idx][l1_idx] = cxt;
 	sdxi->cxt_count++;
 
-	return cxt;
+	return_ptr(cxt);
 }
 
 static void free_cxt(struct sdxi_cxt *cxt)
 {
 	struct sdxi_dev *sdxi = cxt->sdxi;
-	u16 l2_idx, l1_idx;
-
-	l2_idx = ID_TO_L2_INDEX(cxt->id);
-	l1_idx = ID_TO_L1_INDEX(cxt->id);
 
 	sdxi->cxt_count--;
 	dma_free_coherent(sdxi_to_dev(sdxi), sizeof(*cxt->akey_table),
 			  cxt->akey_table, cxt->akey_table_dma);
 	kfree(cxt->ring_state);
 	ida_destroy(&cxt->akey_ida);
+	xa_erase(&sdxi->client_cxts, cxt->id);
 	kfree(cxt);
-
-	(sdxi->cxt_array)[l2_idx][l1_idx] = NULL;
 }
 
 /* alloc context resources and populate context table */
@@ -411,7 +380,7 @@ struct sdxi_cxt *sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
 	}
 
 	/* Ensure this is the first context allocated */
-	if (WARN_ON(cxt->id != SDXI_ADMIN_CXT_ID))
+	if (WARN(cxt->id != SDXI_ADMIN_CXT_ID, "admin cxt id = %u?\n", cxt->id))
 		return NULL;
 
 	sq = sdxi_sq_alloc_default(cxt);
