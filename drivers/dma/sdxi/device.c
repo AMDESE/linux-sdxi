@@ -196,8 +196,8 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 		  sdxi->version.major, sdxi->version.minor);
 
 	/*
-	 * 1.a. Discover limits and implemented features via MMIO_CAP0
-	 * and MMIO_CAP1.
+	 * 1.a. Discover capabilities and characteristics via
+	 * MMIO_CAP0 and MMIO_CAP1.
 	 */
 	cap0 = sdxi_read64(sdxi, SDXI_MMIO_CAP0);
 	sdxi->sfunc = FIELD_GET(SDXI_MMIO_CAP0_SFUNC, cap0);
