@@ -290,8 +290,6 @@ static struct sdxi_cxt *alloc_cxt(struct sdxi_dev *sdxi)
 	cxt->db = sdxi->dbs + id * sdxi->db_stride;
 	ida_init(&cxt->akey_ida);
 
-	sdxi->cxt_count++;
-
 	return_ptr(cxt);
 }
 
@@ -299,7 +297,6 @@ static void free_cxt(struct sdxi_cxt *cxt)
 {
 	struct sdxi_dev *sdxi = cxt->sdxi;
 
-	sdxi->cxt_count--;
 	dma_free_coherent(sdxi_to_dev(sdxi), sizeof(*cxt->akey_table),
 			  cxt->akey_table, cxt->akey_table_dma);
 	kfree(cxt->ring_state);
