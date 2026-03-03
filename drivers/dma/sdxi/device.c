@@ -209,13 +209,19 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	cap1 = sdxi_read64(sdxi, SDXI_MMIO_CAP1);
 	sdxi->max_akeys = SZ_256;
 	sdxi->max_akeys *= 1U << FIELD_GET(SDXI_MMIO_CAP1_MAX_AKEY_SZ, cap1);
-	sdxi->max_cxtid = FIELD_GET(SDXI_MMIO_CAP1_MAX_CXT, cap1);
 	sdxi->op_grp_cap = FIELD_GET(SDXI_MMIO_CAP1_OPB_000_CAP, cap1);
 
 	/*
-	 * 1.b. Configure SDXI parameters via MMIO_CTL2. We don't have
-	 * any reason to impose more conservative limits than those
-	 * reported in the capability registers, so use those for now.
+	 * Constrain the number of client contexts supported by the
+	 * driver to what fits in a single L1 table. Up to 64K
+	 * contexts per function are allowed by the spec, so this is
+	 * likely to be a temporary limit.
+	 */
+	sdxi->max_cxtid = min(SDXI_L1_TABLE_ENTRIES - 1,
+			      FIELD_GET(SDXI_MMIO_CAP1_MAX_CXT, cap1));
+
+	/*
+	 * 1.b. Apply configuration via MMIO_CTL2.
 	 */
 	ctl2 = 0;
 	ctl2 |= FIELD_PREP(SDXI_MMIO_CTL2_MAX_BUFFER,
