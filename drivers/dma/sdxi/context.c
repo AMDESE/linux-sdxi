@@ -309,14 +309,6 @@ static struct sdxi_cxt *alloc_cxt(struct sdxi_dev *sdxi)
 	if (!cxt)
 		return NULL;
 
-	cxt->akey_table = dma_alloc_coherent(sdxi_to_dev(sdxi),
-					     sizeof(*cxt->akey_table),
-					     &cxt->akey_table_dma, GFP_KERNEL);
-	if (!cxt->akey_table) {
-		kfree(cxt);
-		return NULL;
-	}
-
 	cxt->sdxi = sdxi;
 	cxt->id = id;
 	cxt->db_base = sdxi->dbs_bar + id * sdxi->db_stride;
@@ -358,10 +350,16 @@ static struct sdxi_cxt *sdxi_cxt_alloc(struct sdxi_dev *sdxi)
 	if (!cxt)
 		goto drop_cxt_lock;
 
+	cxt->akey_table = dma_alloc_coherent(sdxi_to_dev(sdxi),
+					     sizeof(*cxt->akey_table),
+					     &cxt->akey_table_dma, GFP_KERNEL);
+	if (!cxt->akey_table)
+		goto release_cxt;
+
 	cxt->cxt_ctl = dma_pool_zalloc(sdxi->cxt_ctl_pool, GFP_KERNEL,
 				       &cxt->cxt_ctl_dma);
 	if (!cxt->cxt_ctl)
-		goto release_cxt;
+		goto release_akey_table;
 
 	cxt->ring_state = kzalloc(sizeof(*cxt->ring_state), GFP_KERNEL);
 	if (!cxt->ring_state)
@@ -377,6 +375,9 @@ release_ring_state:
 	kfree(cxt->ring_state);
 release_cxt_ctl:
 	dma_pool_free(sdxi->cxt_ctl_pool, cxt->cxt_ctl, cxt->cxt_ctl_dma);
+release_akey_table:
+	dma_free_coherent(sdxi_to_dev(sdxi), sizeof(*cxt->akey_table),
+			  cxt->akey_table, cxt->akey_table_dma);
 release_cxt:
 	free_cxt(cxt);
 drop_cxt_lock:
