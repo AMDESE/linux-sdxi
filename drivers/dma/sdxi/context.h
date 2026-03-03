@@ -54,7 +54,6 @@ struct sdxi_cxt {
 
 enum sdxi_cxt_id {
 	SDXI_ADMIN_CXT_ID = 0,
-	SDXI_ANY_CXT_ID,
 };
 
 struct sdxi_cxt *sdxi_admin_cxt_init(struct sdxi_dev *sdxi);
