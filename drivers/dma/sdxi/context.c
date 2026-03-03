@@ -59,10 +59,6 @@ static struct sdxi_sq *sdxi_sq_alloc(struct sdxi_cxt *cxt, int ring_entries)
 	if (!sq->write_index)
 		goto free_cxt_sts;
 
-	/* final setup */
-	if (cxt->id == SDXI_ADMIN_CXT_ID)
-		sq->cxt_sts->state = FIELD_PREP(SDXI_CXT_STS_STATE, CXTV_RUN);
-
 	write_index_ptr = FIELD_PREP(SDXI_CXT_CTL_WRITE_INDEX_PTR,
 				     sq->write_index_dma >> 3);
 	cxt_sts_ptr = FIELD_PREP(SDXI_CXT_CTL_CXT_STS_PTR,

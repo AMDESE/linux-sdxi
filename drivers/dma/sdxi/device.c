@@ -253,7 +253,6 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	 * 3. Context Level 1 Table Setup for contexts 0..127.
 	 * 4.a. Create the administrative context and associated control
 	 * structures.
-	 * 4.b. Set its CXT_STS.state to CXTV_RUN; see 10.b.
 	 *
 	 * The admin context will not consume descriptors until we
 	 * write its doorbell later.
@@ -262,6 +261,11 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	if (!sdxi->admin_cxt)
 		return -ENOMEM;
 
+	/*
+	 * 4.b. Set the admin CXT_STS.state to CXTV_RUN.
+	 */
+	sdxi->admin_cxt->sq->cxt_sts->state = FIELD_PREP(SDXI_CXT_STS_STATE,
+							 CXTV_RUN);
 	/*
 	 * 5. Mailbox: we don't use this facility and we assume the
 	 * reset values are sane.
