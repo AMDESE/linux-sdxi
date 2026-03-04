@@ -255,9 +255,15 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	 */
 
 	/*
-	 * This covers the following steps:
-	 *
 	 * 3. Context Level 1 Table Setup for contexts 0..127.
+	 */
+
+	sdxi->L1_table = dmam_alloc_coherent(sdxi_to_dev(sdxi), L1_TABLE_SIZE,
+					     &sdxi->L1_dma, GFP_KERNEL);
+	if (!sdxi->L1_table)
+		return -ENOMEM;
+
+	/*
 	 * 4.a. Create the administrative context and associated control
 	 * structures.
 	 *
