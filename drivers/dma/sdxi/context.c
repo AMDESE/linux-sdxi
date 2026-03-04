@@ -218,7 +218,7 @@ static int config_cxt_tables(struct sdxi_dev *sdxi,
 		sdxi->l1_table_array[l2_idx] = l1_table;
 
 		/* Install the new entry in the L2 table. */
-		l2_entry = &sdxi->l2_table->entry[l2_idx];
+		l2_entry = &sdxi->L2_table->entry[l2_idx];
 		set_cxt_l2_entry(l2_entry, l1_table_dma);
 	}
 
@@ -269,7 +269,7 @@ static void cleanup_cxt_tables(struct sdxi_dev *sdxi,
 	l1_table = sdxi->l1_table_array[l2_idx];
 	/* clear l1 entry */
 	/* FIXME combine clear_cxt_table_entries and this function */
-	clear_cxt_table_entries(sdxi->l2_table, l1_table, cxt);
+	clear_cxt_table_entries(sdxi->L2_table, l1_table, cxt);
 }
 
 static struct sdxi_cxt *alloc_cxt(struct sdxi_dev *sdxi)

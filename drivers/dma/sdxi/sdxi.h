@@ -116,8 +116,8 @@ struct sdxi_dev {
 
 	/* context management */
 	struct mutex cxt_lock;		/* context protection */
-	struct sdxi_cxt_l2_table *l2_table;
-	dma_addr_t l2_dma;
+	struct sdxi_cxt_l2_table *L2_table;
+	dma_addr_t L2_dma;
 	/* list of context l1 tables, on-demand, access with [l2_idx] */
 	struct sdxi_cxt_l1_table *l1_table_array[L2_TABLE_ENTRIES];
 

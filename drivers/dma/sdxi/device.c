@@ -240,13 +240,13 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 		 sdxi->max_akeys, sdxi->max_cxtid, sdxi->op_grp_cap);
 
 	/* 2.a-2.b. Allocate and zero the 4KB Context Level 2 Table */
-	sdxi->l2_table = dmam_alloc_coherent(sdxi_to_dev(sdxi), L2_TABLE_SIZE,
-					     &sdxi->l2_dma, GFP_KERNEL);
-	if (!sdxi->l2_table)
+	sdxi->L2_table = dmam_alloc_coherent(sdxi_to_dev(sdxi), L2_TABLE_SIZE,
+					     &sdxi->L2_dma, GFP_KERNEL);
+	if (!sdxi->L2_table)
 		return -ENOMEM;
 
 	/* 2.c. Program MMIO_CXT_L2 */
-	cxt_l2 = FIELD_PREP(SDXI_MMIO_CXT_L2_PTR, sdxi->l2_dma >> ilog2(SZ_4K));
+	cxt_l2 = FIELD_PREP(SDXI_MMIO_CXT_L2_PTR, sdxi->L2_dma >> ilog2(SZ_4K));
 	sdxi_write64(sdxi, SDXI_MMIO_CXT_L2, cxt_l2);
 
 	/*
