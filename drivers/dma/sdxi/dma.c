@@ -163,12 +163,15 @@ static struct dma_async_tx_descriptor *
 sdxi_dma_prep_memcpy(struct dma_chan *dma_chan, dma_addr_t dst,
 		     dma_addr_t src, size_t len, unsigned long flags)
 {
+	struct sdxi_akey_ent *akey = to_sdxi_dma_chan(dma_chan)->akey;
+	struct sdxi_cxt *cxt = to_sdxi_dma_chan(dma_chan)->cxt;
+	u16 akey_index = sdxi_akey_index(cxt, akey);
 	struct sdxi_dma_desc *sddesc;
 	struct sdxi_copy copy = {
 		.src = src,
 		.dst = dst,
-		.src_akey = 0,
-		.dst_akey = 0,
+		.src_akey = akey_index,
+		.dst_akey = akey_index,
 		.len = len,
 	};
 
@@ -387,6 +390,8 @@ static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
 		goto free_vector;
 	/*
 	 * FIXME: this should all be pushed into the context setup.
+	 * Note this akey entry is used for both the completion
+	 * interrupt and source and destination access for copies.
 	 */
 	*sdchan->akey = (typeof(*sdchan->akey)) {
 		.intr_num = cpu_to_le16(FIELD_PREP(SDXI_AKEY_ENT_VL, 1) |
