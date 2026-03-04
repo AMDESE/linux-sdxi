@@ -121,40 +121,6 @@ static struct sdxi_sq *sdxi_sq_alloc_default(struct sdxi_cxt *cxt)
 	return sdxi_sq_alloc(cxt, DEFAULT_DESC_RING_ENTRIES);
 }
 
-static bool sdxi_cxt_l2_ent_vl(const struct sdxi_cxt_l2_ent *ent)
-{
-	return FIELD_GET(SDXI_CXT_L2_ENT_VL, le64_to_cpu(ent->lv01_ptr));
-}
-
-static dma_addr_t sdxi_cxt_l2_ent_lv01_ptr(const struct sdxi_cxt_l2_ent *ent)
-{
-	return FIELD_GET(SDXI_CXT_L2_ENT_LV01_PTR, le64_to_cpu(ent->lv01_ptr)) << ilog2(SZ_4K);
-}
-
-static void set_cxt_l2_entry(struct sdxi_cxt_l2_ent *l2_entry,
-			     dma_addr_t l1_table_dma)
-{
-	u64 lv01_ptr;
-
-	/* We shouldn't be updating a live entry. */
-	if (WARN_ON_ONCE(sdxi_cxt_l2_ent_vl(l2_entry)))
-		return;
-	/* L1 tables must be 4K-aligned. */
-	if (WARN_ON_ONCE(!IS_ALIGNED(l1_table_dma, SZ_4K)))
-		return;
-
-	lv01_ptr = (FIELD_PREP(SDXI_CXT_L2_ENT_LV01_PTR,
-				   l1_table_dma >> ilog2(SZ_4K)) |
-		    FIELD_PREP(SDXI_CXT_L2_ENT_VL, 1));
-
-	/*
-	 * Ensure the valid bit update follows prior updates to other
-	 * control structures.
-	 */
-	dma_wmb();
-	WRITE_ONCE(l2_entry->lv01_ptr, cpu_to_le64(lv01_ptr));
-}
-
 static void set_cxt_l1_entry(struct sdxi_dev *sdxi,
 			     struct sdxi_cxt_l1_ent *l1_entry,
 			     struct sdxi_cxt *cxt)
@@ -194,82 +160,37 @@ static void set_cxt_l1_entry(struct sdxi_dev *sdxi,
 static int config_cxt_tables(struct sdxi_dev *sdxi,
 			     struct sdxi_cxt *cxt)
 {
-	struct sdxi_cxt_l1_table *l1_table;
 	struct sdxi_cxt_l1_ent *l1_entry;
-	u16 l2_idx;
 	u8 l1_idx;
 
-	l2_idx = ID_TO_L2_INDEX(cxt->id);
+	if (WARN_ONCE(cxt->id > sdxi->max_cxtid,
+		      "can't install cxt with id %u (limit %u)",
+		      cxt->id, sdxi->max_cxtid))
+		return -EINVAL;
+
 	l1_idx = ID_TO_L1_INDEX(cxt->id);
 
-	/* Allocate L1 table if not present. */
-	l1_table = sdxi->l1_table_array[l2_idx];
-	if (!l1_table) {
-		struct sdxi_cxt_l2_ent *l2_entry;
-		dma_addr_t l1_table_dma;
-
-		l1_table = dma_alloc_coherent(sdxi_to_dev(sdxi),
-					      sizeof(*l1_table),
-					      &l1_table_dma, GFP_KERNEL);
-		if (!l1_table)
-			return -ENOMEM;
-
-		/* Track the L1 table vaddr. */
-		sdxi->l1_table_array[l2_idx] = l1_table;
-
-		/* Install the new entry in the L2 table. */
-		l2_entry = &sdxi->L2_table->entry[l2_idx];
-		set_cxt_l2_entry(l2_entry, l1_table_dma);
-	}
-
-	/* Populate the L1 entry. */
-	l1_entry = &l1_table->entry[l1_idx];
+	l1_entry = &sdxi->L1_table->entry[l1_idx];
 	set_cxt_l1_entry(cxt->sdxi, l1_entry, cxt);
+	/* fixme: need to send DSC_CXT_UPD to admin */
 
 	return 0;
-}
-
-static void clear_cxt_table_entries(struct sdxi_cxt_l2_table *l2_table,
-				    struct sdxi_cxt_l1_table *l1_table,
-				    struct sdxi_cxt *cxt)
-{
-	struct sdxi_cxt_l2_ent *l2_entry;
-	struct sdxi_cxt_l1_ent *l1_entry;
-	struct sdxi_dev *sdxi = cxt->sdxi;
-	dma_addr_t l1_dma;
-
-	l2_entry = &l2_table->entry[ID_TO_L2_INDEX(cxt->id)];
-	l1_entry = &l1_table->entry[ID_TO_L1_INDEX(cxt->id)];
-
-	memset(l1_entry, 0, sizeof(*l1_entry));
-
-	/* If this L1 table has been completely zeroed then free it. */
-	if (memchr_inv(l1_table, 0, L1_TABLE_SIZE))
-		return;
-
-	l1_dma = sdxi_cxt_l2_ent_lv01_ptr(l2_entry);
-
-	memset(l2_entry, 0, sizeof(*l2_entry));
-
-	dma_free_coherent(sdxi_to_dev(sdxi), sizeof(*l1_table),
-			  l1_table, l1_dma);
 }
 
 static void cleanup_cxt_tables(struct sdxi_dev *sdxi,
 			       struct sdxi_cxt *cxt)
 {
-	u16 l2_idx;
-	struct sdxi_cxt_l1_table *l1_table;
+	struct sdxi_cxt_l1_ent *l1_entry;
+	u8 l1_idx;
 
 	if (!cxt)
 		return;
 
-	l2_idx = ID_TO_L2_INDEX(cxt->id);
+	l1_idx = ID_TO_L1_INDEX(cxt->id);
 
-	l1_table = sdxi->l1_table_array[l2_idx];
-	/* clear l1 entry */
-	/* FIXME combine clear_cxt_table_entries and this function */
-	clear_cxt_table_entries(sdxi->L2_table, l1_table, cxt);
+	l1_entry = &sdxi->L1_table->entry[l1_idx];
+	memset(l1_entry, 0, sizeof(*l1_entry));
+	/* fixme: need to send DSC_CXT_UPD to admin */
 }
 
 static struct sdxi_cxt *alloc_cxt(struct sdxi_dev *sdxi)

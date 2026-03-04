@@ -169,6 +169,8 @@ static void sdxi_stop(struct sdxi_dev *sdxi)
 /* Refer to "Activation of the SDXI Function by Software". */
 static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 {
+	struct sdxi_cxt_l2_ent *L2_ent;
+	u64 lv01_ptr;
 	u64 version;
 	u64 cxt_l2;
 	u64 cap0;
@@ -262,6 +264,12 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 					     &sdxi->L1_dma, GFP_KERNEL);
 	if (!sdxi->L1_table)
 		return -ENOMEM;
+
+	L2_ent = &sdxi->L2_table->entry[0];
+	lv01_ptr = FIELD_PREP(SDXI_CXT_L2_ENT_VL, 1);
+	lv01_ptr |= FIELD_PREP(SDXI_CXT_L2_ENT_LV01_PTR,
+			       sdxi->L1_dma >> ilog2(SZ_4K));
+	L2_ent->lv01_ptr = cpu_to_le64(lv01_ptr);
 
 	/*
 	 * 4.a. Create the administrative context and associated control

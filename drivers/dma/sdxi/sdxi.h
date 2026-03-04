@@ -120,8 +120,6 @@ struct sdxi_dev {
 	dma_addr_t L2_dma;
 	struct sdxi_cxt_l1_table *L1_table;
 	dma_addr_t L1_dma;
-	/* list of context l1 tables, on-demand, access with [l2_idx] */
-	struct sdxi_cxt_l1_table *l1_table_array[L2_TABLE_ENTRIES];
 
 	struct dma_pool *write_index_pool;
 	struct dma_pool *cxt_sts_pool;
