@@ -127,13 +127,7 @@ static void set_cxt_l1_entry(struct sdxi_dev *sdxi,
 {
 	u64 cxt_ctl_ptr;
 	u64 akey_ptr;
-	u16 intr_num;
 	u32 misc0;
-
-	if (!cxt) {
-		memset(l1_entry, 0, sizeof(*l1_entry));
-		return;
-	}
 
 	cxt_ctl_ptr = (FIELD_PREP(SDXI_CXT_L1_ENT_VL, 1) |
 		       FIELD_PREP(SDXI_CXT_L1_ENT_KA, 1) |
@@ -151,10 +145,6 @@ static void set_cxt_l1_entry(struct sdxi_dev *sdxi,
 		.misc0 = cpu_to_le32(misc0),
 		.opb_000_enb = cpu_to_le32(sdxi->op_grp_cap),
 	};
-
-	intr_num = le16_to_cpu(cxt->akey_table->entry[0].intr_num);
-	FIELD_MODIFY(SDXI_AKEY_ENT_VL, &intr_num, 1);
-	cxt->akey_table->entry[0].intr_num = cpu_to_le16(intr_num);
 }
 
 static int config_cxt_tables(struct sdxi_dev *sdxi,
