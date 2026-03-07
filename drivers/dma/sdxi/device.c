@@ -253,7 +253,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 
 	/*
 	 * 2.c.i. TODO: Program MMIO_CTL0.fn_pasid and
-	 * MMIO_CTL0.fn_pasid if guest virtual addressing required.
+	 * MMIO_CTL0.fn_pasid_vl if guest virtual addressing required.
 	 */
 
 	/*
