@@ -417,7 +417,7 @@ free_akey:
 free_vector:
 	sdxi_free_vector(sdxi, vector);
 exit_cxt:
-	sdxi_working_cxt_exit(sdchan->cxt);
+	sdxi_kcxt_exit(sdchan->cxt);
 	return err;
 }
 
@@ -430,7 +430,7 @@ static void sdxi_dma_free_chan_resources(struct dma_chan *dma_chan)
 	sdxi_free_vector(sdchan->cxt->sdxi, sdchan->vector);
 	sdxi_free_akey(sdchan->cxt, sdchan->akey);
 	vchan_free_chan_resources(to_virt_chan(dma_chan));
-	sdxi_working_cxt_exit(sdchan->cxt);
+	sdxi_kcxt_exit(sdchan->cxt);
 }
 
 int sdxi_dma_register(struct sdxi_dev *sdxi)

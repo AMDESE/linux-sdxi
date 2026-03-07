@@ -324,7 +324,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	return 0;
 
 admin_cxt_exit:
-	sdxi_working_cxt_exit(sdxi->admin_cxt);
+	sdxi_admin_cxt_exit(sdxi->admin_cxt);
 	return err;
 }
 
@@ -360,13 +360,10 @@ static void sdxi_device_exit(struct sdxi_dev *sdxi)
 	struct sdxi_cxt *cxt;
 	unsigned long index;
 
-	xa_for_each(&sdxi->client_cxts, index, cxt) {
-		if (sdxi_cxt_is_admin(cxt))
-			continue;
-		sdxi_working_cxt_exit(cxt);
-	}
+	xa_for_each(&sdxi->client_cxts, index, cxt)
+		sdxi_kcxt_exit(cxt);
 
-	sdxi_working_cxt_exit(sdxi->admin_cxt);
+	sdxi_admin_cxt_exit(sdxi->admin_cxt);
 
 	sdxi_stop(sdxi);
 }
@@ -387,7 +384,7 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 	sdxi->dev = dev;
 	sdxi->bus_ops = ops;
 	ida_init(&sdxi->vectors);
-	xa_init_flags(&sdxi->client_cxts, XA_FLAGS_ALLOC);
+	xa_init_flags(&sdxi->client_cxts, XA_FLAGS_ALLOC1);
 	dev_set_drvdata(dev, sdxi);
 
 	err = sdxi->bus_ops->init(sdxi);
