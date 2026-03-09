@@ -366,8 +366,7 @@ static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
 {
 	struct sdxi_dev *sdxi = dev_get_drvdata(dma_chan->device->dev);
 	struct sdxi_dma_chan *sdchan = to_sdxi_dma_chan(dma_chan);
-	int vector, irq;
-	int err;
+	int vector, irq, err;
 
 	sdchan->cxt = sdxi_kcxt_new(sdxi);
 	if (!sdchan->cxt)
