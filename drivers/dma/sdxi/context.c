@@ -289,6 +289,8 @@ static const char *cxt_sts_state_str(enum cxt_sts_state state)
 	case CXTV_STOPG_FN:
 	case CXTV_ERR_FN:
 		str = context_states[state];
+		break;
+	/* default: label deliberately omitted so -Wswitch will work. */
 	}
 
 	return str;
