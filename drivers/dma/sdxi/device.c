@@ -161,11 +161,6 @@ static int sdxi_dev_stop(struct sdxi_dev *sdxi)
 	return -ETIMEDOUT;
 }
 
-static void sdxi_stop(struct sdxi_dev *sdxi)
-{
-	sdxi_dev_stop(sdxi);
-}
-
 /* Refer to "Activation of the SDXI Function by Software". */
 static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 {
@@ -360,7 +355,7 @@ static void sdxi_device_exit(struct sdxi_dev *sdxi)
 
 	sdxi_admin_cxt_exit(sdxi->admin_cxt);
 
-	sdxi_stop(sdxi);
+	sdxi_dev_stop(sdxi);
 }
 
 int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
