@@ -172,8 +172,6 @@ static_assert(sizeof(struct sdxi_cst_blk) == 32);
 
 struct sdxi_desc {
 	union {
-		__le64 qw[8];
-
 		/* DSC_GENERIC - common header and footer */
 		struct_group_tagged(sdxi_dsc_generic, generic,
 			__le32 opcode;
