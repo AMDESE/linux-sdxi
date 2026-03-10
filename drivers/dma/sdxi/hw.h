@@ -29,7 +29,7 @@
 #include <linux/types.h>
 #include <asm/byteorder.h>
 
-/* Context Level 2 Table Entry (CXT_L2_ENT) */
+/* SDXI 1.0 Table 3-2: Context Level 2 Table Entry (CXT_L2_ENT) */
 struct sdxi_cxt_l2_ent {
 	__le64 lv01_ptr;
 #define SDXI_CXT_L2_ENT_VL       BIT_ULL(0)
@@ -37,16 +37,14 @@ struct sdxi_cxt_l2_ent {
 } __packed;
 static_assert(sizeof(struct sdxi_cxt_l2_ent) == 8);
 
-/*
- * The level 2 table is 4KB and has 512 level 1 pointer entries.
- */
+/* SDXI 1.0 3.2.1 Context Level 2 Table */
 #define SDXI_L2_TABLE_ENTRIES 512
 struct sdxi_cxt_l2_table {
 	struct sdxi_cxt_l2_ent entry[SDXI_L2_TABLE_ENTRIES];
 };
 static_assert(sizeof(struct sdxi_cxt_l2_table) == 4096);
 
-/* Context level 1 table entry (CXT_L1_ENT) */
+/* SDXI 1.0 Table 3-3: Context Level 1 Table Entry (CXT_L1_ENT) */
 struct sdxi_cxt_l1_ent {
 	__le64 cxt_ctl_ptr;
 #define SDXI_CXT_L1_ENT_VL             BIT_ULL(0)
@@ -64,13 +62,14 @@ struct sdxi_cxt_l1_ent {
 } __packed;
 static_assert(sizeof(struct sdxi_cxt_l1_ent) == 32);
 
+/* SDXI 1.0 3.2.2 Context Level 1 Table */
 #define SDXI_L1_TABLE_ENTRIES 128
 struct sdxi_cxt_l1_table {
 	struct sdxi_cxt_l1_ent entry[SDXI_L1_TABLE_ENTRIES];
 };
 static_assert(sizeof(struct sdxi_cxt_l1_table) == 4096);
 
-/* Context control block (CXT_CTL) */
+/* SDXI 1.0 Table 3-4: Context Control (CXT_CTL) */
 struct sdxi_cxt_ctl {
 	__le64 ds_ring_ptr;
 #define SDXI_CXT_CTL_VL             BIT_ULL(0)
@@ -88,7 +87,7 @@ struct sdxi_cxt_ctl {
 } __packed;
 static_assert(sizeof(struct sdxi_cxt_ctl) == 64);
 
-/* Context Status (CXT_STS) */
+/* SDXI 1.0 Table 3-5: Context Status (CXT_STS) */
 struct sdxi_cxt_sts {
 	__u8 state;
 #define SDXI_CXT_STS_STATE GENMASK(3, 0)
@@ -98,7 +97,8 @@ struct sdxi_cxt_sts {
 } __packed;
 static_assert(sizeof(struct sdxi_cxt_sts) == 16);
 
-/* Valid values for FIELD_GET(SDXI_CXT_STS_STATE, sdxi_cxt_sts.state) */
+/* SDXI 1.0 Table 3-6: CXT_STS.state Encoding */
+/* Valid values for FIELD_GET(SDXI_CXT_STS_STATE, sdxi_cxt_sts.state). */
 enum cxt_sts_state {
 	CXTV_STOP_SW  = 0x0,
 	CXTV_RUN      = 0x1,
@@ -113,7 +113,7 @@ static inline enum cxt_sts_state sdxi_cxt_sts_state(const struct sdxi_cxt_sts *s
 	return FIELD_GET(SDXI_CXT_STS_STATE, READ_ONCE(sts->state));
 }
 
-/* Access key entry (AKEY_ENT) */
+/* SDXI 1.0 Table 3-7: AKey Table Entry (AKEY_ENT) */
 struct sdxi_akey_ent {
 	__le16 intr_num;
 #define SDXI_AKEY_ENT_VL BIT(0)
@@ -131,7 +131,7 @@ struct sdxi_akey_ent {
 } __packed;
 static_assert(sizeof(struct sdxi_akey_ent) == 16);
 
-/* Completion status block (CST_BLK) */
+/* SDXI 1.0 Table 6-4: CST_BLK (Completion Status Block) */
 struct sdxi_cst_blk {
 	__le64 signal;
 	__le32 flags;
