@@ -153,7 +153,10 @@ static_assert(sizeof(struct sdxi_cst_blk) == 32);
 
 struct sdxi_desc {
 	union {
-		/* DSC_GENERIC - common header and footer */
+		/*
+		 * SDXI 1.0 Table 6-3: DSC_GENERIC SDXI Descriptor
+		 * Common Header and Footer Format
+		 */
 		struct_group_tagged(sdxi_dsc_generic, generic,
 			__le32 opcode;
 			__u8 operation[52];
@@ -177,13 +180,13 @@ struct sdxi_desc {
 
 #define SDXI_DSC_OP_TYPE_DMAB 0x001
 #define SDXI_DSC_OP_SUBTYPE_NOP 0x01
-		/* DmaBaseGrp: DSC_DMAB_NOP */
+		/* SDXI 1.0 Table 6-6: DSC_DMAB_NOP Descriptor Format */
 		define_sdxi_dsc(sdxi_dsc_dmab_nop, nop,
 			__u8 rsvd_0[52];
 		);
 
 #define SDXI_DSC_OP_SUBTYPE_COPY 0x03
-		/* DmaBaseGrp: DSC_DMAB_COPY */
+		/* SDXI 1.0 Table 6-8: DSC_DMAB_COPY Descriptor Format */
 		define_sdxi_dsc(sdxi_dsc_dmab_copy, copy,
 				__le32 size;
 				__u8 attr;
@@ -197,7 +200,7 @@ struct sdxi_desc {
 
 #define SDXI_DSC_OP_TYPE_INTR 0x004
 #define SDXI_DSC_OP_SUBTYPE_INTR 0x00
-		/* IntrGrp: DSC_INTR */
+		/* SDXI 1.0 Table 6-12: DSC_INTR Descriptor Format */
 		define_sdxi_dsc(sdxi_dsc_intr, intr,
 			__u8 rsvd_0[8];
 			__le16 akey;
@@ -207,7 +210,7 @@ struct sdxi_desc {
 #define SDXI_DSC_OP_TYPE_ADMIN 0x002
 #define SDXI_DSC_OP_SUBTYPE_CXT_START_NM 0x03
 #define SDXI_DSC_OP_SUBTYPE_CXT_START_RS 0x08
-		/* AdminGrp: DSC_CXT_START */
+		/* SDXI 1.0 Table 6-14: DSC_CXT_START Descriptor Format */
 		define_sdxi_dsc(sdxi_dsc_cxt_start, cxt_start,
 				__u8 rsvd_0;
 				__u8 vflags;
@@ -220,7 +223,7 @@ struct sdxi_desc {
 				);
 
 #define SDXI_DSC_OP_SUBTYPE_CXT_STOP     0x04
-		/* AdminGrp: DSC_CXT_STOP */
+		/* SDXI 1.0 Table 6-15: DSC_CXT_STOP Descriptor Format */
 		define_sdxi_dsc(sdxi_dsc_cxt_stop, cxt_stop,
 			__u8 rsvd_0;
 			__u8 vflags;
@@ -234,7 +237,7 @@ struct sdxi_desc {
 #define SDXI_DSC_CXT_STOP_VF BIT(8)
 
 #define SDXI_DSC_OP_SUBTYPE_SYNC 0x06
-		/* AdminGrp: DSC_SYNC */
+		/* SDXI 1.0 Table 6-22: DSC_SYNC Descriptor Format */
 		define_sdxi_dsc(sdxi_dsc_sync, sync,
 				__u8 cflags;
 				__u8 vflags;
