@@ -445,10 +445,12 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 	if (!dma_channels)
 		return 0;
 	/*
-	 * FIXME: This code assumes the device supports the interrupt
-	 * operation group. It's probably not a bad assumption, but
-	 * IntrGrp is optional in the spec. We should probe the
-	 * device's opgroups and bail if IntrGrp isn't implemented.
+	 * Note that this code assumes the device supports the
+	 * interrupt operation group (IntrGrp), which is optional. See
+	 * SDXI 1.0 Table 6-1 SDXI Operation Groups.
+	 *
+	 * TODO: check sdxi->op_grp_cap for IntrGrp support and error
+	 * out if it's missing.
 	 */
 
 	sddev = devm_kzalloc(dev, struct_size(sddev, sdchan, dma_channels),
