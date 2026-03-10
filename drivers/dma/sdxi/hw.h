@@ -140,12 +140,6 @@ struct sdxi_cst_blk {
 } __packed;
 static_assert(sizeof(struct sdxi_cst_blk) == 32);
 
-/*
- * Size of the "body" of each descriptor between the common opcode and
- * csb_ptr fields.
- */
-#define DSC_OPERATION_BYTES 52
-
 #define define_sdxi_dsc(tag_, name_, op_body_)				\
 	struct tag_ {							\
 		__le32 opcode;						\
@@ -162,7 +156,7 @@ struct sdxi_desc {
 		/* DSC_GENERIC - common header and footer */
 		struct_group_tagged(sdxi_dsc_generic, generic,
 			__le32 opcode;
-			__u8 operation[DSC_OPERATION_BYTES];
+			__u8 operation[52];
 			__le64 csb_ptr;
 		);
 
@@ -185,7 +179,7 @@ struct sdxi_desc {
 #define SDXI_DSC_OP_SUBTYPE_NOP 0x01
 		/* DmaBaseGrp: DSC_DMAB_NOP */
 		define_sdxi_dsc(sdxi_dsc_dmab_nop, nop,
-			__u8 rsvd_0[DSC_OPERATION_BYTES];
+			__u8 rsvd_0[52];
 		);
 
 #define SDXI_DSC_OP_SUBTYPE_COPY 0x03
