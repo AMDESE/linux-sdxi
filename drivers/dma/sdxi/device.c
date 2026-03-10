@@ -161,7 +161,9 @@ static int sdxi_dev_stop(struct sdxi_dev *sdxi)
 	return -ETIMEDOUT;
 }
 
-/* Refer to "Activation of the SDXI Function by Software". */
+/*
+ * See SDXI 1.0 4.1.8 Activation of the SDXI Function by Software.
+ */
 static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 {
 	struct sdxi_cxt_l2_ent *L2_ent;
@@ -177,7 +179,6 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	if (err)
 		return err;
 
-	/* Determine which spec version the function implements. */
 	version = sdxi_read64(sdxi, SDXI_MMIO_VERSION);
 	sdxi->version = (typeof(sdxi->version)){
 		.major = FIELD_GET(SDXI_MMIO_VERSION_MAJOR, version),
@@ -187,10 +188,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	sdxi_info(sdxi, "SDXI %u.%u device found\n",
 		  sdxi->version.major, sdxi->version.minor);
 
-	/*
-	 * 1.a. Discover capabilities and characteristics via
-	 * MMIO_CAP0 and MMIO_CAP1.
-	 */
+	/* Read capabilities and features. */
 	cap0 = sdxi_read64(sdxi, SDXI_MMIO_CAP0);
 	sdxi->sfunc = FIELD_GET(SDXI_MMIO_CAP0_SFUNC, cap0);
 	sdxi->max_ring_entries = SZ_1K;
@@ -212,16 +210,12 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	sdxi->max_cxtid = min(SDXI_L1_TABLE_ENTRIES - 1,
 			      FIELD_GET(SDXI_MMIO_CAP1_MAX_CXT, cap1));
 
-	/*
-	 * 1.b. Apply configuration via MMIO_CTL2.
-	 */
-	ctl2 = 0;
+	/* Apply our configuration. */
+	ctl2 = FIELD_PREP(SDXI_MMIO_CTL2_MAX_CXT, sdxi->max_cxtid);
 	ctl2 |= FIELD_PREP(SDXI_MMIO_CTL2_MAX_BUFFER,
 			   FIELD_GET(SDXI_MMIO_CAP1_MAX_BUFFER, cap1));
 	ctl2 |= FIELD_PREP(SDXI_MMIO_CTL2_MAX_AKEY_SZ,
 			   FIELD_GET(SDXI_MMIO_CAP1_MAX_AKEY_SZ, cap1));
-	ctl2 |= FIELD_PREP(SDXI_MMIO_CTL2_MAX_CXT,
-			   FIELD_GET(SDXI_MMIO_CAP1_MAX_CXT, cap1));
 	ctl2 |= FIELD_PREP(SDXI_MMIO_CTL2_OPB_000_AVL,
 			   FIELD_GET(SDXI_MMIO_CAP1_OPB_000_CAP, cap1));
 	sdxi_write64(sdxi, SDXI_MMIO_CTL2, ctl2);
@@ -231,30 +225,24 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 		 sdxi->sfunc, sdxi->max_ring_entries, sdxi->db_stride,
 		 sdxi->max_akeys, sdxi->max_cxtid, sdxi->op_grp_cap);
 
-	/* 2.a-2.b. Allocate and zero the 4KB Context Level 2 Table */
+	/* SDXI 1.0 4.1.8.2 Context Level 2 Table Setup */
 	sdxi->L2_table = dmam_alloc_coherent(sdxi_to_dev(sdxi), L2_TABLE_SIZE,
 					     &sdxi->L2_dma, GFP_KERNEL);
 	if (!sdxi->L2_table)
 		return -ENOMEM;
 
-	/* 2.c. Program MMIO_CXT_L2 */
 	cxt_l2 = FIELD_PREP(SDXI_MMIO_CXT_L2_PTR, sdxi->L2_dma >> ilog2(SZ_4K));
 	sdxi_write64(sdxi, SDXI_MMIO_CXT_L2, cxt_l2);
 
-	/*
-	 * 2.c.i. TODO: Program MMIO_CTL0.fn_pasid and
-	 * MMIO_CTL0.fn_pasid_vl if guest virtual addressing required.
-	 */
-
-	/*
-	 * 3. Context Level 1 Table Setup for contexts 0..127.
-	 */
-
+	/* SDXI 1.0 4.1.8.3 Context Level 1 Table Setup */
 	sdxi->L1_table = dmam_alloc_coherent(sdxi_to_dev(sdxi), L1_TABLE_SIZE,
 					     &sdxi->L1_dma, GFP_KERNEL);
 	if (!sdxi->L1_table)
 		return -ENOMEM;
-
+	/*
+	 * SDXI 1.0 4.1.8.3.c: Initialize the Context level 2 table to
+	 * point to the Context Level 1 [table].
+	 */
 	L2_ent = &sdxi->L2_table->entry[0];
 	lv01_ptr = FIELD_PREP(SDXI_CXT_L2_ENT_VL, 1);
 	lv01_ptr |= FIELD_PREP(SDXI_CXT_L2_ENT_LV01_PTR,
@@ -262,8 +250,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	L2_ent->lv01_ptr = cpu_to_le64(lv01_ptr);
 
 	/*
-	 * 4.a. Create the administrative context and associated control
-	 * structures.
+	 * SDXI 1.0 4.1.8.4 Administrative Context
 	 *
 	 * The admin context will not consume descriptors until we
 	 * write its doorbell later.
@@ -272,42 +259,23 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	if (!sdxi->admin_cxt)
 		return -ENOMEM;
 
-	/*
-	 * 4.b. Set the admin CXT_STS.state to CXTV_RUN.
-	 */
+	/* SDXI 1.0 4.1.8.4.b: Set CXT_STS.state to CXTV_RUN. */
 	sdxi->admin_cxt->sq->cxt_sts->state = FIELD_PREP(SDXI_CXT_STS_STATE,
 							 CXTV_RUN);
 	/*
-	 * 5. Mailbox: we don't use this facility and we assume the
-	 * reset values are sane.
-	 *
-	 * 6. If restoring saved state, adjust as appropriate. (We're not.)
-	 *
-	 * 7. Initialize error log according to "Error Log
-	 * Initialization." This is not strictly necessary and is
-	 * omitted for now.
-	 */
-
-	/*
-	 * 8. "Software may also need to configure and enable
-	 * additional [features]". We've already performed MSI setup,
-	 * nothing else for us to do here for now.
-	 */
-
-	/*
-	 * 9. Set MMIO_CTL0.fn_gsr to GSRV_ACTIVE and wait for
-	 * MMIO_STS0.fn_gsv to reach GSV_ACTIVE or GSV_ERROR.
+	 * SDXI 1.0 4.1.8.9: Set MMIO_CTL0.fn_gsr to GSRV_ACTIVE and
+	 * wait for MMIO_STS0.fn_gsv to reach GSV_ACTIVE or GSV_ERROR.
 	 */
 	err = sdxi_dev_start(sdxi);
 	if (err)
 		goto admin_cxt_exit;
 
 	/*
-	 * 10. Jump start the admin context. This step refers to
-	 * "Starting A context and Context Signaling," where method #3
-	 * recommends writing an "appropriate" value to the doorbell
-	 * register. We haven't queued any descriptors to the admin
-	 * context at this point, so the appropriate value would be 0.
+	 * SDXI 1.0 4.1.8.10.b: Start the admin context using method
+	 * #3 ("Jump Start 1") from 4.3.4 Starting A Context and
+	 * Context Signaling. We haven't queued any descriptors to the
+	 * admin context at this point, so the appropriate value for
+	 * the doorbell is 0.
 	 */
 	iowrite64(0, sdxi->admin_cxt->db);
 
