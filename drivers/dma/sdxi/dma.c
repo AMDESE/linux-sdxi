@@ -371,7 +371,10 @@ static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
 	sdchan->cxt = sdxi_kcxt_new(sdxi);
 	if (!sdchan->cxt)
 		return -ENOMEM;
-
+	/*
+	 * This irq and akey setup should perhaps all be pushed into
+	 * the context allocation.
+	 */
 	err = vector = sdxi_alloc_vector(sdxi);
 	if (vector < 0)
 		goto exit_cxt;
@@ -384,14 +387,14 @@ static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
 
 	sdchan->irq = irq;
 
-	sdchan->akey = sdxi_alloc_akey(sdchan->cxt);
-	if (!sdchan->akey)
-		goto free_vector;
 	/*
-	 * FIXME: this should all be pushed into the context setup.
 	 * Note this akey entry is used for both the completion
 	 * interrupt and source and destination access for copies.
 	 */
+	sdchan->akey = sdxi_alloc_akey(sdchan->cxt);
+	if (!sdchan->akey)
+		goto free_vector;
+
 	*sdchan->akey = (typeof(*sdchan->akey)) {
 		.intr_num = cpu_to_le16(FIELD_PREP(SDXI_AKEY_ENT_VL, 1) |
 					FIELD_PREP(SDXI_AKEY_ENT_IV, 1) |
