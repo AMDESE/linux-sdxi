@@ -25,7 +25,12 @@ void sdxi_ring_state_init(struct sdxi_ring_state *rs, const __le64 *read_index,
 {
 	WARN_ON_ONCE(!read_index);
 	WARN_ON_ONCE(!write_index);
-	WARN_ON_ONCE(entries < SZ_1K); /* SDXI minimum ring size */
+	/*
+	 * See SDXI 1.0 Table 3-1 Memory Structure Summary. Minimum
+	 * descriptor ring size in bytes is 64KB; thus 1024 64-byte
+	 * entries.
+	 */
+	WARN_ON_ONCE(entries < SZ_1K);
 
 	*rs = (typeof(*rs)) {
 		.write_index = le64_to_cpu(*write_index),
