@@ -32,8 +32,8 @@
 /* Context Level 2 Table Entry (CXT_L2_ENT) */
 struct sdxi_cxt_l2_ent {
 	__le64 lv01_ptr;
-#define SDXI_CXT_L2_ENT_LV01_PTR GENMASK_ULL(63, 12)
 #define SDXI_CXT_L2_ENT_VL       BIT_ULL(0)
+#define SDXI_CXT_L2_ENT_LV01_PTR GENMASK_ULL(63, 12)
 } __packed;
 static_assert(sizeof(struct sdxi_cxt_l2_ent) == 8);
 
