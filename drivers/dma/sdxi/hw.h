@@ -131,19 +131,6 @@ struct sdxi_akey_ent {
 } __packed;
 static_assert(sizeof(struct sdxi_akey_ent) == 16);
 
-/* Error Log Header Entry (ERRLOG_HD_ENT) */
-struct sdxi_errlog_hd_ent {
-	__le32 opcode;
-	__le16 misc0;
-	__le16 cxt_num;
-	__le64 dsc_index;
-	__u8   rsvd_0[28];
-	__le16 err_class;
-	__u8   rsvd_1[2];
-	__le32 vendor[4];
-} __packed;
-static_assert(sizeof(struct sdxi_errlog_hd_ent) == 64);
-
 /* Completion status block (CST_BLK) */
 struct sdxi_cst_blk {
 	__le64 signal;
