@@ -64,11 +64,11 @@ enum {
 	SDXI_ERROR_VECTOR = 0,
 
 	/*
-	 * The driver requires a minimum of two MSI vectors to operate
-	 * correctly: one for the admin context, one for the error
-	 * log.
+	 * Request at least one vector to account for the error log
+	 * interrupt. Increment this if the driver gains more
+	 * dedicated interrupts (e.g. one for the admin context).
 	 */
-	SDXI_MIN_VECTORS = 2,
+	SDXI_MIN_VECTORS = 1,
 };
 
 struct sdxi_dev;
