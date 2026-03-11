@@ -1,5 +1,5 @@
-#ifndef LINUX_SDXI_COMPLETION_H
-#define LINUX_SDXI_COMPLETION_H
+#ifndef DMA_SDXI_COMPLETION_H
+#define DMA_SDXI_COMPLETION_H
 
 #include "sdxi.h"
 
@@ -19,4 +19,4 @@ bool sdxi_completion_errored(const struct sdxi_completion *sc);
 DEFINE_FREE(sdxi_completion, struct sdxi_completion *,
 	    if (_T) sdxi_completion_free(_T))
 
-#endif /* LINUX_SDXI_COMPLETION_H */
+#endif /* DMA_SDXI_COMPLETION_H */

@@ -5,8 +5,8 @@
  * Copyright (C) 2026 Advanced Micro Devices, Inc.
  */
 
-#ifndef __SDXI_H
-#define __SDXI_H
+#ifndef DMA_SDXI_H
+#define DMA_SDXI_H
 
 #include <linux/dev_printk.h>
 #include <linux/dma-mapping.h>
@@ -189,4 +189,4 @@ static inline void sdxi_write64(struct sdxi_dev *sdxi, enum sdxi_reg reg, u64 va
 	iowrite64(val, sdxi->ctrl_regs + reg);
 }
 
-#endif /* __SDXI_H */
+#endif /* DMA_SDXI_H */

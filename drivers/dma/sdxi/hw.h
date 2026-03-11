@@ -18,8 +18,8 @@
  * specified.
  */
 
-#ifndef LINUX_SDXI_HW_H
-#define LINUX_SDXI_HW_H
+#ifndef DMA_SDXI_HW_H
+#define DMA_SDXI_HW_H
 
 #include <linux/bitfield.h>
 #include <linux/bits.h>
@@ -254,4 +254,4 @@ struct sdxi_desc {
 } __packed;
 static_assert(sizeof(struct sdxi_desc) == 64);
 
-#endif /* LINUX_SDXI_HW_H */
+#endif /* DMA_SDXI_HW_H */

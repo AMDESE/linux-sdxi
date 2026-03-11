@@ -5,8 +5,8 @@
  * Copyright (C) 2026 Advanced Micro Devices, Inc.
  */
 
-#ifndef __SDXI_SQ_H
-#define __SDXI_SQ_H
+#ifndef DMA_SDXI_CONTEXT_H
+#define DMA_SDXI_CONTEXT_H
 
 #include <linux/array_size.h>
 #include <linux/dma-mapping.h>
@@ -83,4 +83,4 @@ static inline void sdxi_free_akey(struct sdxi_cxt *cxt, struct sdxi_akey_ent *ak
 	ida_free(&cxt->akey_ida, sdxi_akey_index(cxt, akey));
 }
 
-#endif /* __SDXI_SQ_H */
+#endif /* DMA_SDXI_CONTEXT_H */
