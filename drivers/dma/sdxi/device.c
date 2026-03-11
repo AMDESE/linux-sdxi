@@ -286,23 +286,25 @@ admin_cxt_exit:
 	return err;
 }
 
+static int sdxi_create_dma_pool(struct sdxi_dev *sdxi, struct dma_pool **pool,
+				const char *name, size_t size)
+{
+	*pool = dmam_pool_create(name, sdxi_to_dev(sdxi), size, size, 0);
+	return *pool ? 0 : -ENOMEM;
+}
+
 static int sdxi_device_init(struct sdxi_dev *sdxi)
 {
 	int err;
 
-	/*
-	 * FIXME: the PAGE_SIZE for the pools' object size+align is a
-	 * temporary hack for the uAPI's sake. These should be reverted
-	 * to the real object sizes once that's dealt with.
-	 */
-	sdxi->write_index_pool = dmam_pool_create("Write_Index", sdxi_to_dev(sdxi),
-						  PAGE_SIZE, PAGE_SIZE, 0);
-	sdxi->cxt_sts_pool = dmam_pool_create("CXT_STS", sdxi_to_dev(sdxi),
-					      PAGE_SIZE, PAGE_SIZE, 0);
-	sdxi->cxt_ctl_pool = dmam_pool_create("CXT_CTL", sdxi_to_dev(sdxi),
-					      sizeof(struct sdxi_cxt_ctl),
-					      sizeof(struct sdxi_cxt_ctl), 0);
-	if (!sdxi->write_index_pool || !sdxi->cxt_sts_pool || !sdxi->cxt_ctl_pool)
+	if (sdxi_create_dma_pool(sdxi, &sdxi->write_index_pool,
+				 "Write_Index", sizeof(__le64)))
+		return -ENOMEM;
+	if (sdxi_create_dma_pool(sdxi, &sdxi->cxt_sts_pool,
+				 "CXT_STS", sizeof(struct sdxi_cxt_sts)))
+		return -ENOMEM;
+	if (sdxi_create_dma_pool(sdxi, &sdxi->cxt_ctl_pool,
+				 "CXT_CTL", sizeof(struct sdxi_cxt_ctl)))
 		return -ENOMEM;
 
 	err = sdxi_fn_activate(sdxi);
