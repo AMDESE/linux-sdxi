@@ -2,7 +2,7 @@
 /*
  * SDXI descriptor encoding tests.
  *
- * Copyright (C) 2025 Advanced Micro Devices, Inc.
+ * Copyright (C) 2026 Advanced Micro Devices, Inc.
  *
  * While the driver code uses bitfield macros (BIT, GENMASK) to encode
  * descriptors, these tests use the packing API to decode them.

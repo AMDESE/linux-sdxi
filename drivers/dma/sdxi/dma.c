@@ -2,7 +2,7 @@
 /*
  * SDXI dmaengine provider
  *
- * Copyright (C) 2025 Advanced Micro Devices, Inc.
+ * Copyright (C) 2026 Advanced Micro Devices, Inc.
  */
 
 #include <linux/cleanup.h>

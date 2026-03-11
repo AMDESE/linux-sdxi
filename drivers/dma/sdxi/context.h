@@ -2,7 +2,7 @@
 /*
  * Header for sq and descriptor management
  *
- * Copyright (C) 2025 Advanced Micro Devices, Inc.
+ * Copyright (C) 2026 Advanced Micro Devices, Inc.
  */
 
 #ifndef __SDXI_SQ_H

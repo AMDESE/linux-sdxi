@@ -2,7 +2,7 @@
 /*
  * SDXI device driver header
  *
- * Copyright (C) 2025 Advanced Micro Devices, Inc.
+ * Copyright (C) 2026 Advanced Micro Devices, Inc.
  */
 
 #ifndef __SDXI_H

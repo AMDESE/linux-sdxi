@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-/* Copyright (C) 2025 Advanced Micro Devices, Inc. */
+/* Copyright (C) 2026 Advanced Micro Devices, Inc. */
 
 /*
  * Control structures and constants defined in the SDXI specification,

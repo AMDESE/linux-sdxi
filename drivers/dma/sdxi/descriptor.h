@@ -5,7 +5,7 @@
 /*
  * Facilities for encoding SDXI descriptors.
  *
- * Copyright (C) 2025 Advanced Micro Devices, Inc.
+ * Copyright (C) 2026 Advanced Micro Devices, Inc.
  */
 
 #include <linux/bitfield.h>
