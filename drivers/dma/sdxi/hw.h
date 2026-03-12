@@ -188,15 +188,15 @@ struct sdxi_desc {
 #define SDXI_DSC_OP_SUBTYPE_COPY 0x03
 		/* SDXI 1.0 Table 6-8: DSC_DMAB_COPY Descriptor Format */
 		define_sdxi_dsc(sdxi_dsc_dmab_copy, copy,
-				__le32 size;
-				__u8 attr;
-				__u8 rsvd_0[3];
-				__le16 akey0;
-				__le16 akey1;
-				__le64 addr0;
-				__le64 addr1;
-				__u8 rsvd_1[24];
-				);
+			__le32 size;
+			__u8 attr;
+			__u8 rsvd_0[3];
+			__le16 akey0;
+			__le16 akey1;
+			__le64 addr0;
+			__le64 addr1;
+			__u8 rsvd_1[24];
+		);
 
 #define SDXI_DSC_OP_TYPE_INTR 0x004
 #define SDXI_DSC_OP_SUBTYPE_INTR 0x00
@@ -212,15 +212,15 @@ struct sdxi_desc {
 #define SDXI_DSC_OP_SUBTYPE_CXT_START_RS 0x08
 		/* SDXI 1.0 Table 6-14: DSC_CXT_START Descriptor Format */
 		define_sdxi_dsc(sdxi_dsc_cxt_start, cxt_start,
-				__u8 rsvd_0;
-				__u8 vflags;
-				__le16 vf_num;
-				__le16 cxt_start;
-				__le16 cxt_end;
-				__u8 rsvd_1[4];
-				__le64 db_value;
-				__u8 rsvd_2[32];
-				);
+			__u8 rsvd_0;
+			__u8 vflags;
+			__le16 vf_num;
+			__le16 cxt_start;
+			__le16 cxt_end;
+			__u8 rsvd_1[4];
+			__le64 db_value;
+			__u8 rsvd_2[32];
+		);
 
 #define SDXI_DSC_OP_SUBTYPE_CXT_STOP     0x04
 		/* SDXI 1.0 Table 6-15: DSC_CXT_STOP Descriptor Format */
@@ -239,14 +239,14 @@ struct sdxi_desc {
 #define SDXI_DSC_OP_SUBTYPE_SYNC 0x06
 		/* SDXI 1.0 Table 6-22: DSC_SYNC Descriptor Format */
 		define_sdxi_dsc(sdxi_dsc_sync, sync,
-				__u8 cflags;
-				__u8 vflags;
-				__le16 vf_num;
-				__le16 cxt_start;
-				__le16 cxt_end;
-				__le16 key_start;
-				__le16 key_end;
-				__u8 rsvd_0[40];
+			__u8 cflags;
+			__u8 vflags;
+			__le16 vf_num;
+			__le16 cxt_start;
+			__le16 cxt_end;
+			__le16 key_start;
+			__le16 key_end;
+			__u8 rsvd_0[40];
 		);
 /* For use with sync.cflags */
 #define SDXI_DSC_SYNC_FLT GENMASK(2, 0)
