@@ -10,6 +10,9 @@ config SDXI
 	  interface.
 
 config SDXI_KUNIT_TEST
-       tristate "SDXI unit tests" if !KUNIT_ALL_TESTS
-       depends on SDXI && KUNIT
-       default KUNIT_ALL_TESTS
+	tristate "SDXI unit tests" if !KUNIT_ALL_TESTS
+	depends on SDXI && KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  KUnit tests for parts of the SDXI driver. Does not require
+	  SDXI hardware.
