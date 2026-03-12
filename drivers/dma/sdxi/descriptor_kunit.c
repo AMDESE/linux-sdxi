@@ -126,6 +126,27 @@ static const struct packed_field_u16 cxt_start_subfields[] = {
 	cxt_start_field(191, 128, db_value),
 };
 
+/* DSC_CXT_STOP */
+struct unpacked__cxt_stop {
+	bool hs;
+	bool vf;
+	u16 vf_num;
+	u16 cxt_start;
+	u16 cxt_end;
+};
+
+#define cxt_stop_field(_high, _low, _member) \
+	desc_field(_high, _low, struct unpacked__cxt_stop, _member)
+#define cxt_stop_flag(_bit, _member) cxt_stop_field(_bit, _bit, _member)
+
+static const struct packed_field_u16 cxt_stop_subfields[] = {
+	cxt_stop_flag(45, hs),
+	cxt_stop_flag(47, vf),
+	cxt_stop_field(63, 48, vf_num),
+	cxt_stop_field(79, 64, cxt_start),
+	cxt_stop_field(95, 80, cxt_end),
+};
+
 /* DSC_GENERIC */
 struct unpacked_desc {
 	u64 csb_ptr;
@@ -143,6 +164,7 @@ struct unpacked_desc {
 		struct unpacked__intr intr;
 		struct unpacked__sync sync;
 		struct unpacked__cxt_start cxt_start;
+		struct unpacked__cxt_stop cxt_stop;
 	};
 };
 
@@ -193,6 +215,7 @@ define_unpack_fn(intr)
 define_unpack_fn(copy)
 define_unpack_fn(sync)
 define_unpack_fn(cxt_start)
+define_unpack_fn(cxt_stop)
 
 static void desc_poison(struct sdxi_desc *d)
 {
@@ -373,28 +396,26 @@ static void cxt_start(struct kunit *t)
 	KUNIT_EXPECT_EQ(t, unpacked.cxt_start.db_value, 0);
 }
 
-#if 0
 static void cxt_stop(struct kunit *t)
 {
+	struct unpacked_desc unpacked;
 	struct sdxi_cxt_stop stop = {
-		.range = sdxi_cxt_range(1, U16_MAX)
+		.range = sdxi_cxt_range(2),
 	};
-	struct sdxi_desc desc = {};
-	struct sdxi_desc_unpacked unpacked;
+	struct sdxi_desc desc;
 
-	KUNIT_EXPECT_EQ(t, 0, sdxi_encode_cxt_stop(&desc, &stop));
+	desc_poison(&desc);
+	KUNIT_ASSERT_EQ(t, 0, sdxi_encode_cxt_stop(&desc, &stop));
 
-	/* Check op-specific fields */
-	KUNIT_EXPECT_EQ(t, 0, desc.cxt_stop.vflags);
-	KUNIT_EXPECT_EQ(t, 0, le16_to_cpu(desc.cxt_stop.vf_num));
-	KUNIT_EXPECT_EQ(t, 1, le16_to_cpu(desc.cxt_stop.cxt_start));
-	KUNIT_EXPECT_EQ(t, U16_MAX, le16_to_cpu(desc.cxt_stop.cxt_end));
+	unpack_cxt_stop(&unpacked, &desc);
+
+	/* Check op-specific fields. */
+	KUNIT_EXPECT_EQ(t, 0, desc.cxt_start.vflags);
 
 	/*
 	 * Check generic fields. Some flags have mandatory values
 	 * according to the operation type.
 	 */
-	sdxi_desc_unpack(&unpacked, &desc);
 	KUNIT_EXPECT_EQ(t, unpacked.vl, 0);
 	KUNIT_EXPECT_EQ(t, unpacked.se, 0);
 	KUNIT_EXPECT_EQ(t, unpacked.fe, 1);
@@ -403,9 +424,13 @@ static void cxt_stop(struct kunit *t)
 	KUNIT_EXPECT_EQ(t, unpacked.type, SDXI_DSC_OP_TYPE_ADMIN);
 	KUNIT_EXPECT_EQ(t, unpacked.csb_ptr, 0);
 	KUNIT_EXPECT_EQ(t, unpacked.np, 1);
-}
 
-#endif
+	KUNIT_EXPECT_FALSE(t, unpacked.cxt_stop.hs);
+	KUNIT_EXPECT_FALSE(t, unpacked.cxt_stop.vf);
+	KUNIT_EXPECT_EQ(t, unpacked.cxt_stop.cxt_start, 2);
+	KUNIT_EXPECT_EQ(t, unpacked.cxt_stop.cxt_end, 2);
+	KUNIT_EXPECT_EQ(t, unpacked.cxt_stop.vf_num, 0);
+}
 
 static void sync(struct kunit *t)
 {
@@ -433,7 +458,7 @@ static struct kunit_case generic_desc_tcs[] = {
 	KUNIT_CASE(copy),
 	KUNIT_CASE(intr),
 	KUNIT_CASE(cxt_start),
-	/* KUNIT_CASE(cxt_stop), */
+	KUNIT_CASE(cxt_stop),
 	KUNIT_CASE(sync),
 	{}
 };
