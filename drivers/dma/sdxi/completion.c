@@ -1,6 +1,7 @@
 #include <linux/cleanup.h>
-#include <linux/slab.h>
 #include <linux/dma-mapping.h>
+#include <linux/dmapool.h>
+#include <linux/slab.h>
 
 #include "completion.h"
 #include "descriptor.h"
@@ -24,9 +25,7 @@ struct sdxi_completion *sdxi_completion_alloc(struct sdxi_dev *sdxi)
 	if (!sc)
 		return NULL;
 
-	/* Should use a dma_pool. */
-	cst_blk = dma_alloc_coherent(sdxi_to_dev(sdxi), sizeof(*cst_blk),
-				     &cst_blk_dma, GFP_NOWAIT);
+	cst_blk = dma_pool_zalloc(sdxi->cst_blk_pool, GFP_NOWAIT, &cst_blk_dma);
 	if (!cst_blk)
 		return NULL;
 
@@ -43,8 +42,7 @@ struct sdxi_completion *sdxi_completion_alloc(struct sdxi_dev *sdxi)
 
 void sdxi_completion_free(struct sdxi_completion *sc)
 {
-	dma_free_coherent(sdxi_to_dev(sc->sdxi), sizeof(*sc->cst_blk),
-			  sc->cst_blk, sc->cst_blk_dma);
+	dma_pool_free(sc->sdxi->cst_blk_pool, sc->cst_blk, sc->cst_blk_dma);
 	kfree(sc);
 }
 

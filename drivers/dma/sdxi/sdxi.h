@@ -124,6 +124,7 @@ struct sdxi_dev {
 	struct dma_pool *write_index_pool;
 	struct dma_pool *cxt_sts_pool;
 	struct dma_pool *cxt_ctl_pool;
+	struct dma_pool *cst_blk_pool;
 
 	unsigned int nr_vectors;
 	struct ida vectors;

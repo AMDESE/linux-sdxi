@@ -306,6 +306,9 @@ static int sdxi_device_init(struct sdxi_dev *sdxi)
 	if (sdxi_create_dma_pool(sdxi, &sdxi->cxt_ctl_pool,
 				 "CXT_CTL", sizeof(struct sdxi_cxt_ctl)))
 		return -ENOMEM;
+	if (sdxi_create_dma_pool(sdxi, &sdxi->cst_blk_pool,
+				 "CST_BLK", sizeof(struct sdxi_cst_blk)))
+		return -ENOMEM;
 
 	err = sdxi_fn_activate(sdxi);
 	if (err)
