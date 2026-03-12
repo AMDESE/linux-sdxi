@@ -7,6 +7,7 @@
 
 #define pr_fmt(fmt)     "SDXI: " fmt
 
+#include <linux/bug.h>
 #include <linux/delay.h>
 #include <linux/dma-direction.h>
 #include <linux/dma-mapping.h>
@@ -15,7 +16,6 @@
 #include <linux/io-64-nonatomic-lo-hi.h>
 #include <linux/types.h>
 #include <linux/wordpart.h>
-#include <asm/bug.h>
 
 #include "admin.h"
 #include "context.h"

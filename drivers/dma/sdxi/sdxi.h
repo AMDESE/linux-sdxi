@@ -8,6 +8,7 @@
 #ifndef DMA_SDXI_H
 #define DMA_SDXI_H
 
+#include <linux/bug.h>
 #include <linux/dev_printk.h>
 #include <linux/dma-mapping.h>
 #include <linux/dmaengine.h>
@@ -17,7 +18,6 @@
 #include <linux/mutex.h>
 #include <linux/types.h>
 #include <linux/xarray.h>
-#include <asm/bug.h>
 
 #include "hw.h"
 #include "mmio.h"
