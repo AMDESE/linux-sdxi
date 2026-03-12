@@ -17,7 +17,6 @@ void sdxi_completion_attach(struct sdxi_desc *desc,
 bool sdxi_completion_signaled(const struct sdxi_completion *sc);
 bool sdxi_completion_errored(const struct sdxi_completion *sc);
 
-DEFINE_FREE(sdxi_completion, struct sdxi_completion *,
-	    if (_T) sdxi_completion_free(_T))
+DEFINE_FREE(sdxi_completion, struct sdxi_completion *, if (_T) sdxi_completion_free(_T))
 
 #endif /* DMA_SDXI_COMPLETION_H */
