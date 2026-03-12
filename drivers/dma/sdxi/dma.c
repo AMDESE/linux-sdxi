@@ -490,7 +490,8 @@ int sdxi_dma_register(struct sdxi_dev *sdxi)
 		vchan_init(&sdchan->vchan, &sddev->dma_dev);
 	}
 
-	if ((err = dmaenginem_async_device_register(dma_dev)))
+	err = dmaenginem_async_device_register(dma_dev);
+	if (err)
 		return dev_warn_probe(dev, err, "failed to register dma device\n");
 
 	return 0;
