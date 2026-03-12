@@ -323,7 +323,8 @@ struct __class_sdxi_cxt_id {
 #define take_sdxi_cxt_id(x) __get_and_null(x, sdxi_cxt_id_null)
 
 DEFINE_CLASS(sdxi_alloc_cxt_id, struct __class_sdxi_cxt_id,
-	if (_T.id >= 0) xa_erase(&_T.sdxi->client_cxts, _T.id),
+	if (_T.id >= 0)
+		xa_erase(&_T.sdxi->client_cxts, _T.id),
 	((struct __class_sdxi_cxt_id){
 		.sdxi = sdxi,
 		.id = ({
@@ -334,7 +335,7 @@ DEFINE_CLASS(sdxi_alloc_cxt_id, struct __class_sdxi_cxt_id,
 			err ? err : id;
 		}),
 	}),
-	struct sdxi_dev *sdxi, struct sdxi_cxt *cxt);
+	struct sdxi_dev *sdxi, struct sdxi_cxt *cxt)
 
 /*
  * Allocate the context ID; link the context back to the device;
