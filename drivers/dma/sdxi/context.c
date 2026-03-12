@@ -53,7 +53,7 @@ static void sdxi_free_cxt(struct sdxi_cxt *cxt)
 	kfree(cxt);
 }
 
-DEFINE_FREE(sdxi_cxt, struct sdxi_cxt *, if (_T) sdxi_free_cxt(_T));
+DEFINE_FREE(sdxi_cxt, struct sdxi_cxt *, if (_T) sdxi_free_cxt(_T))
 
 /* Allocate a context and its control structure hierarchy in memory. */
 static struct sdxi_cxt *sdxi_alloc_cxt(struct sdxi_dev *sdxi)
