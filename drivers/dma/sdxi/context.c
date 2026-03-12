@@ -67,11 +67,11 @@ static struct sdxi_cxt *sdxi_alloc_cxt(struct sdxi_dev *sdxi)
 
 	cxt->sdxi = sdxi;
 
-	cxt->ring_state = kzalloc(sizeof(*cxt->ring_state), GFP_KERNEL);
+	cxt->ring_state = kzalloc_obj(*cxt->ring_state, GFP_KERNEL);
 	if (!cxt->ring_state)
 		return NULL;
 
-	cxt->sq = kzalloc(sizeof(*cxt->sq), GFP_KERNEL);
+	cxt->sq = kzalloc_obj(*cxt->sq, GFP_KERNEL);
 	if (!cxt->sq)
 		return NULL;
 
