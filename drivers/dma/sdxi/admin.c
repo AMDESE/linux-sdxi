@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/cleanup.h>
 #include <linux/kernel.h>
-#include <asm/processor.h>
+#include <linux/processor.h>
 #include <asm/rwonce.h>
 
 #include "admin.h"
