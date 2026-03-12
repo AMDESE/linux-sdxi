@@ -250,6 +250,8 @@ struct sdxi_desc {
 		);
 /* For use with sync.cflags */
 #define SDXI_DSC_SYNC_FLT GENMASK(2, 0)
+
+#undef define_sdxi_dsc
 	};
 } __packed;
 static_assert(sizeof(struct sdxi_desc) == 64);
