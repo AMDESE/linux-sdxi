@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 #include <kunit/visibility.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
 #include <linux/lockdep.h>

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef DMA_SDXI_COMPLETION_H
 #define DMA_SDXI_COMPLETION_H
 
