@@ -196,6 +196,7 @@ static int serialize_L1_entry(struct sdxi_cxt_l1_ent *ent,
 static void make_L1_entry_valid(struct sdxi_cxt_l1_ent *ent)
 {
 	u64 reg = le64_to_cpu(READ_ONCE(ent->cxt_ctl_ptr));
+
 	FIELD_MODIFY(SDXI_CXT_L1_ENT_VL, &reg, 1);
 	dma_wmb();
 	WRITE_ONCE(ent->cxt_ctl_ptr, cpu_to_le64(reg));
