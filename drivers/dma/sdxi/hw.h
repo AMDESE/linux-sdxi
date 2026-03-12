@@ -140,17 +140,6 @@ struct sdxi_cst_blk {
 } __packed;
 static_assert(sizeof(struct sdxi_cst_blk) == 32);
 
-#define define_sdxi_dsc(tag_, name_, op_body_)				\
-	struct tag_ {							\
-		__le32 opcode;						\
-		op_body_						\
-		__le64 csb_ptr;						\
-	} __packed name_;						\
-	static_assert(sizeof(struct tag_) ==				\
-		      sizeof(struct sdxi_dsc_generic));			\
-	static_assert(offsetof(struct tag_, csb_ptr) ==			\
-		      offsetof(struct sdxi_dsc_generic, csb_ptr))
-
 struct sdxi_desc {
 	union {
 		/*
@@ -177,6 +166,17 @@ struct sdxi_desc {
 /* For csb_ptr field */
 #define SDXI_DSC_NP BIT_ULL(0)
 #define SDXI_DSC_CSB_PTR GENMASK_ULL(63, 5)
+
+#define define_sdxi_dsc(tag_, name_, op_body_)				\
+	struct tag_ {							\
+		__le32 opcode;						\
+		op_body_						\
+		__le64 csb_ptr;						\
+	} __packed name_;						\
+	static_assert(sizeof(struct tag_) ==				\
+		      sizeof(struct sdxi_dsc_generic));			\
+	static_assert(offsetof(struct tag_, csb_ptr) ==			\
+		      offsetof(struct sdxi_dsc_generic, csb_ptr))
 
 #define SDXI_DSC_OP_TYPE_DMAB 0x001
 #define SDXI_DSC_OP_SUBTYPE_NOP 0x01
