@@ -400,7 +400,7 @@ void sdxi_admin_cxt_exit(struct sdxi_cxt *cxt)
  * Allocate a context for in-kernel use. Starting the context is the
  * caller's responsibility.
  */
-struct sdxi_cxt *sdxi_kcxt_new(struct sdxi_dev *sdxi)
+struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi)
 {
 	struct sdxi_sq *sq;
 
@@ -419,7 +419,7 @@ struct sdxi_cxt *sdxi_kcxt_new(struct sdxi_dev *sdxi)
 	return_ptr(cxt);
 }
 
-void sdxi_kcxt_exit(struct sdxi_cxt *cxt)
+void sdxi_cxt_exit(struct sdxi_cxt *cxt)
 {
 	if (WARN_ON(sdxi_cxt_is_admin(cxt)))
 		return;

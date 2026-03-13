@@ -58,8 +58,8 @@ enum sdxi_cxt_id {
 struct sdxi_cxt *sdxi_admin_cxt_init(struct sdxi_dev *sdxi);
 void sdxi_admin_cxt_exit(struct sdxi_cxt *cxt);
 
-struct sdxi_cxt *sdxi_kcxt_new(struct sdxi_dev *sdxi);
-void sdxi_kcxt_exit(struct sdxi_cxt *cxt);
+struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi);
+void sdxi_cxt_exit(struct sdxi_cxt *cxt);
 
 void sdxi_cxt_push_doorbell(struct sdxi_cxt *cxt, u64 index);
 

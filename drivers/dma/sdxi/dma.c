@@ -368,7 +368,7 @@ static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
 	struct sdxi_dma_chan *sdchan = to_sdxi_dma_chan(dma_chan);
 	int vector, irq, err;
 
-	sdchan->cxt = sdxi_kcxt_new(sdxi);
+	sdchan->cxt = sdxi_cxt_new(sdxi);
 	if (!sdchan->cxt)
 		return -ENOMEM;
 	/*
@@ -419,7 +419,7 @@ free_akey:
 free_vector:
 	sdxi_free_vector(sdxi, vector);
 exit_cxt:
-	sdxi_kcxt_exit(sdchan->cxt);
+	sdxi_cxt_exit(sdchan->cxt);
 	return err;
 }
 
@@ -432,7 +432,7 @@ static void sdxi_dma_free_chan_resources(struct dma_chan *dma_chan)
 	sdxi_free_vector(sdchan->cxt->sdxi, sdchan->vector);
 	sdxi_free_akey(sdchan->cxt, sdchan->akey);
 	vchan_free_chan_resources(to_virt_chan(dma_chan));
-	sdxi_kcxt_exit(sdchan->cxt);
+	sdxi_cxt_exit(sdchan->cxt);
 }
 
 int sdxi_dma_register(struct sdxi_dev *sdxi)

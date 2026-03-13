@@ -324,7 +324,7 @@ static void sdxi_device_exit(struct sdxi_dev *sdxi)
 	unsigned long index;
 
 	xa_for_each(&sdxi->client_cxts, index, cxt)
-		sdxi_kcxt_exit(cxt);
+		sdxi_cxt_exit(cxt);
 
 	sdxi_admin_cxt_exit(sdxi->admin_cxt);
 
