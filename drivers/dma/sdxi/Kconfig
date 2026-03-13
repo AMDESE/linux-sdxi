@@ -2,7 +2,6 @@ config SDXI
 	tristate "SDXI support"
 	select DMA_ENGINE
 	select DMA_VIRTUAL_CHANNELS
-	select PACKING
 	help
 	  Enable support for Smart Data Accelerator Interface (SDXI)
 	  Platform Data Mover devices. SDXI is a vendor-neutral
@@ -13,6 +12,7 @@ config SDXI_KUNIT_TEST
 	tristate "SDXI unit tests" if !KUNIT_ALL_TESTS
 	depends on SDXI && KUNIT
 	default KUNIT_ALL_TESTS
+	select PACKING
 	help
 	  KUnit tests for parts of the SDXI driver. Does not require
 	  SDXI hardware.
