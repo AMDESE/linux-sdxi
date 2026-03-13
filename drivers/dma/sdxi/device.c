@@ -17,7 +17,6 @@
 #include <linux/xarray.h>
 #include <asm/mmu.h>
 
-#include "admin.h"
 #include "context.h"
 #include "dma.h"
 #include "hw.h"

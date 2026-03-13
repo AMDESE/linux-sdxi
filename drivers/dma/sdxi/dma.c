@@ -18,7 +18,6 @@
 
 #include "../dmaengine.h"
 #include "../virt-dma.h"
-#include "admin.h"
 #include "completion.h"
 #include "context.h"
 #include "descriptor.h"
