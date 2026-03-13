@@ -118,32 +118,45 @@ struct sdxi_cxt_ctl_cfg {
 	bool se;
 };
 
-static int serialize_cxt_ctl(struct sdxi_cxt_ctl *ctl, const struct sdxi_cxt_ctl_cfg *cfg)
+static int configure_cxt_ctl(struct sdxi_cxt_ctl *ctl, const struct sdxi_cxt_ctl_cfg *cfg)
 {
 	u64 ds_ring_ptr, cxt_sts_ptr, write_index_ptr;
 
-	ds_ring_ptr = FIELD_PREP(SDXI_CXT_CTL_QOS, cfg->qos) |
-		FIELD_PREP(SDXI_CXT_CTL_SE, cfg->se) |
-		FIELD_PREP(SDXI_CXT_CTL_CSA, cfg->csa) |
-		FIELD_PREP(SDXI_CXT_CTL_DS_RING_PTR, cfg->ds_ring_ptr >> 6);
 	write_index_ptr = FIELD_PREP(SDXI_CXT_CTL_WRITE_INDEX_PTR,
 				     cfg->write_index_ptr >> 3);
 	cxt_sts_ptr = FIELD_PREP(SDXI_CXT_CTL_CXT_STS_PTR,
 				 cfg->cxt_sts_ptr >> 4);
 
 	*ctl = (typeof(*ctl)) {
-		.ds_ring_ptr     = cpu_to_le64(ds_ring_ptr),
+		/*
+		 * ds_ring_ptr contains the validity bit and is updated
+		 * after a barrier is issued.
+		 */
 		.ds_ring_sz      = cpu_to_le32(cfg->ds_ring_sz),
 		.cxt_sts_ptr     = cpu_to_le64(cxt_sts_ptr),
 		.write_index_ptr = cpu_to_le64(write_index_ptr),
 	};
 
-	/* Ensure vl=1 update ordering */
-	ds_ring_ptr |= FIELD_PREP(SDXI_CXT_CTL_VL, 1);
+	ds_ring_ptr = FIELD_PREP(SDXI_CXT_CTL_VL, 1) |
+		FIELD_PREP(SDXI_CXT_CTL_QOS, cfg->qos) |
+		FIELD_PREP(SDXI_CXT_CTL_SE, cfg->se) |
+		FIELD_PREP(SDXI_CXT_CTL_CSA, cfg->csa) |
+		FIELD_PREP(SDXI_CXT_CTL_DS_RING_PTR, cfg->ds_ring_ptr >> 6);
+	/* Ensure other fields are visible before hw sees vl=1. */
 	dma_wmb();
 	WRITE_ONCE(ctl->ds_ring_ptr, cpu_to_le64(ds_ring_ptr));
 
 	return 0;
+}
+
+static void invalidate_cxtl_ctl(struct sdxi_cxt_ctl *ctl)
+{
+	u64 ds_ring_ptr = le64_to_cpu(READ_ONCE(ctl->ds_ring_ptr));
+
+	FIELD_MODIFY(SDXI_CXT_CTL_VL, &ds_ring_ptr, 0);
+	WRITE_ONCE(ctl->ds_ring_ptr, cpu_to_le64(ds_ring_ptr));
+	dma_wmb();
+	*ctl = (typeof(*ctl)) { 0 };
 }
 
 /*
@@ -160,7 +173,7 @@ struct sdxi_cxt_L1_cfg {
 	bool pv;
 };
 
-static int serialize_L1_entry(struct sdxi_cxt_l1_ent *ent,
+static int configure_L1_entry(struct sdxi_cxt_l1_ent *ent,
 			      const struct sdxi_cxt_L1_cfg *cfg)
 {
 	u64 cxt_ctl_ptr, akey_ptr;
@@ -171,36 +184,43 @@ static int serialize_L1_entry(struct sdxi_cxt_l1_ent *ent,
 	if (WARN_ON_ONCE(!IS_ALIGNED(cfg->akey_ptr, SZ_4K)))
 		return -EFAULT;
 
-	cxt_ctl_ptr = FIELD_PREP(SDXI_CXT_L1_ENT_KA, cfg->ka) |
-		      FIELD_PREP(SDXI_CXT_L1_ENT_PV, cfg->pv) |
-		      FIELD_PREP(SDXI_CXT_L1_ENT_CXT_CTL_PTR,
-				 cfg->cxt_ctl_ptr >> L1_CXT_CTRL_PTR_SHIFT);
-
 	akey_ptr = FIELD_PREP(SDXI_CXT_L1_ENT_AKEY_SZ, cfg->akey_sz) |
-		   FIELD_PREP(SDXI_CXT_L1_ENT_AKEY_PTR,
-			      cfg->akey_ptr >> L1_CXT_AKEY_PTR_SHIFT);
+		FIELD_PREP(SDXI_CXT_L1_ENT_AKEY_PTR,
+			   cfg->akey_ptr >> L1_CXT_AKEY_PTR_SHIFT);
 
 	misc0 = FIELD_PREP(SDXI_CXT_L1_ENT_PASID, cfg->cxt_pasid) |
 		FIELD_PREP(SDXI_CXT_L1_ENT_MAX_BUFFER, cfg->max_buffer);
 
 	*ent = (typeof(*ent)) {
-		.cxt_ctl_ptr = cpu_to_le64(cxt_ctl_ptr),
+		/*
+		 * cxt_ctl_ptr contains the validity bit and is
+		 * updated after a barrier is issued.
+		 */
 		.akey_ptr    = cpu_to_le64(akey_ptr),
 		.misc0       = cpu_to_le32(misc0),
 		.opb_000_enb = cpu_to_le32(cfg->opb_000_enb),
 	};
 
+	cxt_ctl_ptr = FIELD_PREP(SDXI_CXT_L1_ENT_VL, 1) |
+		FIELD_PREP(SDXI_CXT_L1_ENT_KA, cfg->ka) |
+		FIELD_PREP(SDXI_CXT_L1_ENT_PV, cfg->pv) |
+		FIELD_PREP(SDXI_CXT_L1_ENT_CXT_CTL_PTR,
+			   cfg->cxt_ctl_ptr >> L1_CXT_CTRL_PTR_SHIFT);
+	/* Ensure other fields are visible before hw sees vl=1. */
+	dma_wmb();
+	WRITE_ONCE(ent->cxt_ctl_ptr, cpu_to_le64(cxt_ctl_ptr));
+
 	return 0;
 }
 
-/* FIXME: put this in serialize_L1_entry */
-static void make_L1_entry_valid(struct sdxi_cxt_l1_ent *ent)
+static void invalidate_L1_entry(struct sdxi_cxt_l1_ent *ent)
 {
-	u64 reg = le64_to_cpu(READ_ONCE(ent->cxt_ctl_ptr));
+	u64 cxt_ctl_ptr = le64_to_cpu(READ_ONCE(ent->cxt_ctl_ptr));
 
-	FIELD_MODIFY(SDXI_CXT_L1_ENT_VL, &reg, 1);
+	FIELD_MODIFY(SDXI_CXT_L1_ENT_VL, &cxt_ctl_ptr, 0);
+	WRITE_ONCE(ent->cxt_ctl_ptr, cpu_to_le64(cxt_ctl_ptr));
 	dma_wmb();
-	WRITE_ONCE(ent->cxt_ctl_ptr, cpu_to_le64(reg));
+	*ent = (typeof(*ent)) { 0 };
 }
 
 /*
@@ -230,7 +250,7 @@ static int sdxi_publish_cxt(const struct sdxi_cxt *cxt)
 		.write_index_ptr = cxt->sq->write_index_dma,
 	};
 
-	err = serialize_cxt_ctl(cxt->cxt_ctl, &ctl_cfg);
+	err = configure_cxt_ctl(cxt->cxt_ctl, &ctl_cfg);
 	if (err)
 		return err;
 
@@ -248,12 +268,9 @@ static int sdxi_publish_cxt(const struct sdxi_cxt *cxt)
 		.max_buffer  = 11, /* 4GB */
 		.opb_000_enb = cxt->sdxi->op_grp_cap,
 	};
-	err = serialize_L1_entry(ent, &L1_cfg);
-	if (err)
-		return err;
-	make_L1_entry_valid(ent);
-	/* fixme: need to send DSC_CXT_UPD to admin */
-	return 0;
+
+	return configure_L1_entry(ent, &L1_cfg);
+	/* todo: need to send DSC_CXT_UPD to admin */
 }
 
 /* Invalidate a context. */
@@ -261,14 +278,10 @@ static void sdxi_rescind_cxt(struct sdxi_cxt *cxt)
 {
 	u8 l1_idx = ID_TO_L1_INDEX(cxt->id);
 	struct sdxi_cxt_l1_ent *ent = &cxt->sdxi->L1_table->entry[l1_idx];
-	u64 reg = le64_to_cpu(READ_ONCE(ent->cxt_ctl_ptr));
 
-	/* Clear vl, then zero the whole entry for good measure. */
-	FIELD_MODIFY(SDXI_CXT_L1_ENT_VL, &reg, 0);
-	WRITE_ONCE(ent->cxt_ctl_ptr, cpu_to_le64(reg));
-	dma_wmb();
-	(void)serialize_L1_entry(ent, &(struct sdxi_cxt_L1_cfg){});
-	/* fixme: need to send DSC_CXT_UPD to admin */
+	invalidate_L1_entry(ent);
+	invalidate_cxtl_ctl(cxt->cxt_ctl);
+	/* todo: need to send DSC_CXT_UPD to admin */
 }
 
 static const char *cxt_sts_state_str(enum cxt_sts_state state)
