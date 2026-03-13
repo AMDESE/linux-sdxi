@@ -424,7 +424,7 @@ void sdxi_cxt_exit(struct sdxi_cxt *cxt)
 	if (WARN_ON(sdxi_cxt_is_admin(cxt)))
 		return;
 
-	sdxi_adm_stop_cxt(cxt);
+	sdxi_stop_cxt(cxt);
 	unregister_cxt(cxt);
 	sdxi_free_cxt(cxt);
 }

@@ -11,7 +11,7 @@
 #include "ring.h"
 #include "sdxi.h"
 
-int sdxi_adm_start_cxt(struct sdxi_cxt *cxt)
+int sdxi_start_cxt(struct sdxi_cxt *cxt)
 {
 	struct sdxi_cxt *adm = to_admin_cxt(cxt);
 	struct sdxi_desc *desc;
@@ -43,7 +43,7 @@ int sdxi_adm_start_cxt(struct sdxi_cxt *cxt)
 	return 0;
 }
 
-void sdxi_adm_stop_cxt(struct sdxi_cxt *cxt)
+void sdxi_stop_cxt(struct sdxi_cxt *cxt)
 {
 	struct sdxi_cxt *adm = to_admin_cxt(cxt);
 	struct sdxi_desc *stop, *sync;

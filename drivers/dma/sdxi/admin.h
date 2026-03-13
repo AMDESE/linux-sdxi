@@ -5,8 +5,8 @@
 #include "context.h"
 #include "sdxi.h"
 
-int sdxi_adm_start_cxt(struct sdxi_cxt *cxt);
-void sdxi_adm_stop_cxt(struct sdxi_cxt *cxt);
+int sdxi_start_cxt(struct sdxi_cxt *cxt);
+void sdxi_stop_cxt(struct sdxi_cxt *cxt);
 
 static inline struct sdxi_cxt *to_admin_cxt(const struct sdxi_cxt *cxt)
 {

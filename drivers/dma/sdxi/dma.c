@@ -407,7 +407,7 @@ static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
 	if (err)
 		goto free_akey;
 
-	err = sdxi_adm_start_cxt(sdchan->cxt);
+	err = sdxi_start_cxt(sdchan->cxt);
 	if (err)
 		goto free_irq;
 
@@ -427,7 +427,7 @@ static void sdxi_dma_free_chan_resources(struct dma_chan *dma_chan)
 {
 	struct sdxi_dma_chan *sdchan = to_sdxi_dma_chan(dma_chan);
 
-	sdxi_adm_stop_cxt(sdchan->cxt);
+	sdxi_stop_cxt(sdchan->cxt);
 	free_irq(sdchan->irq, sdchan);
 	sdxi_free_vector(sdchan->cxt->sdxi, sdchan->vector);
 	sdxi_free_akey(sdchan->cxt, sdchan->akey);
