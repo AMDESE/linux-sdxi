@@ -29,9 +29,6 @@ enum sdxi_reg {
 
 /* SDXI 1.0 Table 9-2: MMIO_CTL0 */
 #define SDXI_MMIO_CTL0_FN_GSR         GENMASK_ULL(1, 0)
-#define SDXI_MMIO_CTL0_FN_PASID_VL    BIT_ULL(2)
-#define SDXI_MMIO_CTL0_FN_PASID       GENMASK_ULL(27, 8)
-#define SDXI_MMIO_CTL0_FN_GRP_ID      GENMASK_ULL(63, 32)
 
 /* SDXI 1.0 Table 9-4: MMIO_CTL2 */
 #define SDXI_MMIO_CTL2_MAX_BUFFER  GENMASK_ULL(3, 0)
