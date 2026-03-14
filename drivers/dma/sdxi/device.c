@@ -12,7 +12,6 @@
 #include <linux/dmapool.h>
 #include <linux/log2.h>
 #include <linux/module.h>
-#include <linux/mutex.h>
 #include <linux/pci.h>
 #include <linux/slab.h>
 #include <linux/xarray.h>
@@ -339,10 +338,6 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 	sdxi = devm_kzalloc(dev, sizeof(*sdxi), GFP_KERNEL);
 	if (!sdxi)
 		return -ENOMEM;
-
-	err = devm_mutex_init(dev, &sdxi->cxt_lock);
-	if (err)
-		return err;
 
 	sdxi->dev = dev;
 	sdxi->bus_ops = ops;

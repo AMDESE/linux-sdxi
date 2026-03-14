@@ -17,7 +17,6 @@
 #include <linux/iomap.h>
 #include <linux/math64.h>
 #include <linux/module.h>
-#include <linux/mutex.h>
 #include <linux/pci-ats.h>
 #include <linux/pci.h>
 

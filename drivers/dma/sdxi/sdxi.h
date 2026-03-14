@@ -16,7 +16,6 @@
 #include <linux/idr.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
 #include <linux/module.h>
-#include <linux/mutex.h>
 #include <linux/types.h>
 #include <linux/xarray.h>
 
@@ -116,7 +115,6 @@ struct sdxi_dev {
 	u32 op_grp_cap;			/* supported operatation group cap */
 
 	/* context management */
-	struct mutex cxt_lock;		/* context protection */
 	struct sdxi_cxt_l2_table *L2_table;
 	dma_addr_t L2_dma;
 	struct sdxi_cxt_l1_table *L1_table;
