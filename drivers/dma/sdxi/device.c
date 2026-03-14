@@ -178,13 +178,9 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 		return err;
 
 	version = sdxi_read64(sdxi, SDXI_MMIO_VERSION);
-	sdxi->version = (typeof(sdxi->version)){
-		.major = FIELD_GET(SDXI_MMIO_VERSION_MAJOR, version),
-		.minor = FIELD_GET(SDXI_MMIO_VERSION_MINOR, version),
-	};
-
-	sdxi_info(sdxi, "SDXI %u.%u device found\n",
-		  sdxi->version.major, sdxi->version.minor);
+	sdxi_info(sdxi, "SDXI %llu.%llu device found\n",
+		  FIELD_GET(SDXI_MMIO_VERSION_MAJOR, version),
+		  FIELD_GET(SDXI_MMIO_VERSION_MINOR, version));
 
 	/* Read capabilities and features. */
 	cap0 = sdxi_read64(sdxi, SDXI_MMIO_CAP0);

@@ -92,18 +92,11 @@ struct sdxi_bus_ops {
 struct device;
 struct dma_pool;
 
-struct sdxi_version {
-	u8 major;
-	u8 minor;
-};
-
 struct sdxi_dev {
 	struct device *dev;
 	resource_size_t dbs_bar;	/* doorbells base (BAR2) */
 	void __iomem *ctrl_regs;	/* virt addr of ctrl registers */
 	void __iomem *dbs;		/* virt addr of doorbells */
-
-	struct sdxi_version version; /* SDXI version implemented by function */
 
 	/* hardware capabilities (from cap0 & cap1) */
 	u16 sfunc;			/* function's requester id */
