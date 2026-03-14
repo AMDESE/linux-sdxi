@@ -25,7 +25,7 @@
 int __must_check sdxi_encode_size32(u64 size, __le32 *dest);
 #endif
 
-static void sdxi_desc_vl_expect(const struct sdxi_desc *desc, u8 expected)
+static inline void sdxi_desc_vl_expect(const struct sdxi_desc *desc, bool expected)
 {
 	u8 vl = FIELD_GET(SDXI_DSC_VL, le32_to_cpu(desc->opcode));
 
