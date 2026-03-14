@@ -5,14 +5,12 @@
  * Copyright (C) 2026 Advanced Micro Devices, Inc.
  */
 
+#include <linux/bitfield.h>
 #include <linux/delay.h>
 #include <linux/device.h>
-#include <linux/dma-direction.h>
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
 #include <linux/log2.h>
-#include <linux/module.h>
-#include <linux/pci.h>
 #include <linux/slab.h>
 #include <linux/xarray.h>
 #include <asm/mmu.h>
@@ -20,6 +18,7 @@
 #include "context.h"
 #include "dma.h"
 #include "hw.h"
+#include "mmio.h"
 #include "sdxi.h"
 
 enum sdxi_fn_gsv {
