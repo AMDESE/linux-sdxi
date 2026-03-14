@@ -59,7 +59,7 @@ enum sdxi_fn_gsr {
 static enum sdxi_fn_gsv sdxi_dev_gsv(const struct sdxi_dev *sdxi)
 {
 	return (enum sdxi_fn_gsv)FIELD_GET(SDXI_MMIO_STS0_FN_GSV,
-					sdxi_read64(sdxi, SDXI_MMIO_STS0));
+					   sdxi_read64(sdxi, SDXI_MMIO_STS0));
 }
 
 static void sdxi_write_fn_gsr(struct sdxi_dev *sdxi, enum sdxi_fn_gsr cmd)
