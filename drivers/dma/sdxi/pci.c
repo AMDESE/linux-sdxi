@@ -62,8 +62,6 @@ static int sdxi_pci_init(struct sdxi_dev *sdxi)
 				     "failed to map doorbell region\n");
 	}
 
-	sdxi->dbs_bar = pci_resource_start(pdev, SDXI_PCI_BAR_DOORBELL);
-
 	/*
 	 * Allocate the minimum required set of vectors plus one for
 	 * each client context supported by the function.

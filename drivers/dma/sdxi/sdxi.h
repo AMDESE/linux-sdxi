@@ -94,16 +94,11 @@ struct dma_pool;
 
 struct sdxi_dev {
 	struct device *dev;
-	resource_size_t dbs_bar;	/* doorbells base (BAR2) */
 	void __iomem *ctrl_regs;	/* virt addr of ctrl registers */
 	void __iomem *dbs;		/* virt addr of doorbells */
 
 	/* hardware capabilities (from cap0 & cap1) */
-	u16 sfunc;			/* function's requester id */
 	u32 db_stride;			/* doorbell stride in bytes */
-	u64 max_ring_entries;		/* max # of ring entries supported */
-
-	u32 max_akeys;			/* max akey # supported */
 	u16 max_cxtid;			/* Maximum context ID allowed. */
 	u32 op_grp_cap;			/* supported operatation group cap */
 

@@ -184,15 +184,10 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 
 	/* Read capabilities and features. */
 	cap0 = sdxi_read64(sdxi, SDXI_MMIO_CAP0);
-	sdxi->sfunc = FIELD_GET(SDXI_MMIO_CAP0_SFUNC, cap0);
-	sdxi->max_ring_entries = SZ_1K;
-	sdxi->max_ring_entries *= 1U << FIELD_GET(SDXI_MMIO_CAP0_MAX_DS_RING_SZ, cap0);
 	sdxi->db_stride = SZ_4K;
 	sdxi->db_stride *= 1U << FIELD_GET(SDXI_MMIO_CAP0_DB_STRIDE, cap0);
 
 	cap1 = sdxi_read64(sdxi, SDXI_MMIO_CAP1);
-	sdxi->max_akeys = SZ_256;
-	sdxi->max_akeys *= 1U << FIELD_GET(SDXI_MMIO_CAP1_MAX_AKEY_SZ, cap1);
 	sdxi->op_grp_cap = FIELD_GET(SDXI_MMIO_CAP1_OPB_000_CAP, cap1);
 
 	/*
