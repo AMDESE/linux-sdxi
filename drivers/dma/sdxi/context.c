@@ -151,7 +151,7 @@ static int configure_cxt_ctl(struct sdxi_cxt_ctl *ctl, const struct sdxi_cxt_ctl
 
 static void invalidate_cxtl_ctl(struct sdxi_cxt_ctl *ctl)
 {
-	u64 ds_ring_ptr = le64_to_cpu(READ_ONCE(ctl->ds_ring_ptr));
+	u64 ds_ring_ptr = le64_to_cpu(ctl->ds_ring_ptr);
 
 	FIELD_MODIFY(SDXI_CXT_CTL_VL, &ds_ring_ptr, 0);
 	WRITE_ONCE(ctl->ds_ring_ptr, cpu_to_le64(ds_ring_ptr));
@@ -215,7 +215,7 @@ static int configure_L1_entry(struct sdxi_cxt_l1_ent *ent,
 
 static void invalidate_L1_entry(struct sdxi_cxt_l1_ent *ent)
 {
-	u64 cxt_ctl_ptr = le64_to_cpu(READ_ONCE(ent->cxt_ctl_ptr));
+	u64 cxt_ctl_ptr = le64_to_cpu(ent->cxt_ctl_ptr);
 
 	FIELD_MODIFY(SDXI_CXT_L1_ENT_VL, &cxt_ctl_ptr, 0);
 	WRITE_ONCE(ent->cxt_ctl_ptr, cpu_to_le64(cxt_ctl_ptr));
