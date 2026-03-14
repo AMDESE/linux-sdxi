@@ -10,9 +10,6 @@
 #define DMA_SDXI_MMIO_H
 
 #include <linux/bits.h>
-#include <linux/compiler_attributes.h>
-#include <linux/compiler_types.h>
-#include <linux/types.h>
 
 enum sdxi_reg {
 	/* SDXI 1.0 9.1 General Control and Status Registers */
