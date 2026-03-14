@@ -214,11 +214,6 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 			   FIELD_GET(SDXI_MMIO_CAP1_OPB_000_CAP, cap1));
 	sdxi_write64(sdxi, SDXI_MMIO_CTL2, ctl2);
 
-	sdxi_dbg(sdxi,
-		 "sfunc:%#x descmax:%llu dbstride:%#x akeymax:%u cxtmax:%u opgrps:%#x\n",
-		 sdxi->sfunc, sdxi->max_ring_entries, sdxi->db_stride,
-		 sdxi->max_akeys, sdxi->max_cxtid, sdxi->op_grp_cap);
-
 	/* SDXI 1.0 4.1.8.2 Context Level 2 Table Setup */
 	sdxi->L2_table = dmam_alloc_coherent(sdxi_to_dev(sdxi), L2_TABLE_SIZE,
 					     &sdxi->L2_dma, GFP_KERNEL);
