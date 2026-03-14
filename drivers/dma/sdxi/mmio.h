@@ -25,7 +25,6 @@ enum sdxi_reg {
 
 	/* SDXI 1.0 9.2 Context and RKey Table Registers */
 	SDXI_MMIO_CXT_L2     = 0x10000,
-	SDXI_MMIO_RKEY       = 0x10100,
 };
 
 /* SDXI 1.0 Table 9-2: MMIO_CTL0 */
@@ -63,10 +62,5 @@ enum sdxi_reg {
 
 /* SDXI 1.0 Table 9-9: MMIO_CXT_L2 */
 #define SDXI_MMIO_CXT_L2_PTR GENMASK_ULL(63, 12)
-
-/* SDXI 1.0 Table 9-10: MMIO_RKEY */
-#define SDXI_MMIO_RKEY_PTR GENMASK_ULL(63, 12)
-#define SDXI_MMIO_RKEY_SZ  GENMASK_ULL(4, 1)
-#define SDXI_MMIO_RKEY_EN  BIT_ULL(0)
 
 #endif  /* DMA_SDXI_MMIO_H */
