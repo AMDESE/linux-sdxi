@@ -44,16 +44,14 @@ static inline void sdxi_desc_make_valid(struct sdxi_desc *desc)
 	u32 opcode = le32_to_cpu(desc->opcode);
 
 	sdxi_desc_vl_expect(desc, 0);
-
 	FIELD_MODIFY(SDXI_DSC_VL, &opcode, 1);
-
 	/*
 	 * Once vl is set, no more modifications to the descriptor
 	 * payload are allowed. Ensure the vl update is ordered after
 	 * all other initialization of the descriptor.
 	 */
 	dma_wmb();
-	desc->opcode = cpu_to_le32(opcode);
+	WRITE_ONCE(desc->opcode, cpu_to_le32(opcode));
 }
 
 static inline void sdxi_desc_set_fence(struct sdxi_desc *desc)
