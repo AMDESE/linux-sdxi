@@ -9,6 +9,7 @@
 #define DMA_SDXI_H
 
 #include <linux/bug.h>
+#include <linux/compiler_types.h>
 #include <linux/dev_printk.h>
 #include <linux/dma-mapping.h>
 #include <linux/dmaengine.h>
