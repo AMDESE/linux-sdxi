@@ -61,7 +61,6 @@ static inline void sdxi_desc_set_fence(struct sdxi_desc *desc)
 	u32 opcode = le32_to_cpu(desc->opcode);
 
 	sdxi_desc_vl_expect(desc, 0);
-	WARN_ON_ONCE(FIELD_GET(SDXI_DSC_VL, opcode) == 1);
 	FIELD_MODIFY(SDXI_DSC_FE, &opcode, 1);
 	desc->opcode = cpu_to_le32(opcode);
 }
@@ -71,7 +70,6 @@ static inline void sdxi_desc_set_sequential(struct sdxi_desc *desc)
 	u32 opcode = le32_to_cpu(desc->opcode);
 
 	sdxi_desc_vl_expect(desc, 0);
-	WARN_ON_ONCE(FIELD_GET(SDXI_DSC_VL, opcode) == 1);
 	FIELD_MODIFY(SDXI_DSC_SE, &opcode, 1);
 	desc->opcode = cpu_to_le32(opcode);
 }
