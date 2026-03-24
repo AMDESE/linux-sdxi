@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * SDXI descriptor ring state management. Handles advancing the write
+ * index correctly and supplies "reservations" i.e. slices of the ring
+ * to be filled with descriptors.
+ *
+ * Copyright (C) 2026 Advanced Micro Devices, Inc.
+ */
 #include <kunit/visibility.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
 #include <linux/lockdep.h>
