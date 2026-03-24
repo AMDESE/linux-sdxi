@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * SDXI Descriptor Completion Status Block handling.
+ *
+ * Copyright (C) 2026 Advanced Micro Devices, Inc.
+ */
 #include <linux/cleanup.h>
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
