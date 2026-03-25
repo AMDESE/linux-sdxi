@@ -123,9 +123,9 @@ static int configure_cxt_ctl(struct sdxi_cxt_ctl *ctl, const struct sdxi_cxt_ctl
 	u64 ds_ring_ptr, cxt_sts_ptr, write_index_ptr;
 
 	write_index_ptr = FIELD_PREP(SDXI_CXT_CTL_WRITE_INDEX_PTR,
-				     cfg->write_index_ptr >> 3);
+				     cfg->write_index_ptr >> WRT_INDEX_PTR_SHIFT);
 	cxt_sts_ptr = FIELD_PREP(SDXI_CXT_CTL_CXT_STS_PTR,
-				 cfg->cxt_sts_ptr >> 4);
+				 cfg->cxt_sts_ptr >> CXT_STATUS_PTR_SHIFT);
 
 	*ctl = (typeof(*ctl)) {
 		/*
@@ -141,7 +141,8 @@ static int configure_cxt_ctl(struct sdxi_cxt_ctl *ctl, const struct sdxi_cxt_ctl
 		FIELD_PREP(SDXI_CXT_CTL_QOS, cfg->qos) |
 		FIELD_PREP(SDXI_CXT_CTL_SE, cfg->se) |
 		FIELD_PREP(SDXI_CXT_CTL_CSA, cfg->csa) |
-		FIELD_PREP(SDXI_CXT_CTL_DS_RING_PTR, cfg->ds_ring_ptr >> 6);
+		FIELD_PREP(SDXI_CXT_CTL_DS_RING_PTR,
+			   cfg->ds_ring_ptr >> DESC_RING_BASE_PTR_SHIFT);
 	/* Ensure other fields are visible before hw sees vl=1. */
 	dma_wmb();
 	WRITE_ONCE(ctl->ds_ring_ptr, cpu_to_le64(ds_ring_ptr));
