@@ -27,7 +27,6 @@
 
 #define ID_TO_L2_INDEX(id)	(((id) >> 9) & 0x1FF)
 #define ID_TO_L1_INDEX(id)	((id) & 0x7F)
-#define IS_VF_DEVICE(sdxi)	((sdxi)->is_vf)
 
 #define L2_TABLE_ENTRIES	(1 << 9)
 #define L1_TABLE_ENTRIES	(1 << 7)
