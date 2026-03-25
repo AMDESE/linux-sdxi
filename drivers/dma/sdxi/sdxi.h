@@ -103,9 +103,9 @@ struct sdxi_dev {
 	u32 op_grp_cap;			/* supported operatation group cap */
 
 	/* context management */
-	struct sdxi_cxt_l2_table *L2_table;
+	struct sdxi_cxt_L2_table *L2_table;
 	dma_addr_t L2_dma;
-	struct sdxi_cxt_l1_table *L1_table;
+	struct sdxi_cxt_L1_table *L1_table;
 	dma_addr_t L1_dma;
 
 	struct dma_pool *write_index_pool;

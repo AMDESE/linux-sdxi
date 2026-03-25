@@ -173,7 +173,7 @@ struct sdxi_cxt_L1_cfg {
 	bool pv;
 };
 
-static int configure_L1_entry(struct sdxi_cxt_l1_ent *ent,
+static int configure_L1_entry(struct sdxi_cxt_L1_ent *ent,
 			      const struct sdxi_cxt_L1_cfg *cfg)
 {
 	u64 cxt_ctl_ptr, akey_ptr;
@@ -213,7 +213,7 @@ static int configure_L1_entry(struct sdxi_cxt_l1_ent *ent,
 	return 0;
 }
 
-static void invalidate_L1_entry(struct sdxi_cxt_l1_ent *ent)
+static void invalidate_L1_entry(struct sdxi_cxt_L1_ent *ent)
 {
 	u64 cxt_ctl_ptr = le64_to_cpu(ent->cxt_ctl_ptr);
 
@@ -232,7 +232,7 @@ static int sdxi_publish_cxt(const struct sdxi_cxt *cxt)
 {
 	struct sdxi_cxt_ctl_cfg ctl_cfg;
 	struct sdxi_cxt_L1_cfg L1_cfg;
-	struct sdxi_cxt_l1_ent *ent;
+	struct sdxi_cxt_L1_ent *ent;
 	u8 l1_idx;
 	int err;
 
@@ -277,7 +277,7 @@ static int sdxi_publish_cxt(const struct sdxi_cxt *cxt)
 static void sdxi_rescind_cxt(struct sdxi_cxt *cxt)
 {
 	u8 l1_idx = ID_TO_L1_INDEX(cxt->id);
-	struct sdxi_cxt_l1_ent *ent = &cxt->sdxi->L1_table->entry[l1_idx];
+	struct sdxi_cxt_L1_ent *ent = &cxt->sdxi->L1_table->entry[l1_idx];
 
 	invalidate_L1_entry(ent);
 	invalidate_cxtl_ctl(cxt->cxt_ctl);
