@@ -27,9 +27,6 @@
 #define ID_TO_L2_INDEX(id)	(((id) >> 9) & 0x1FF)
 #define ID_TO_L1_INDEX(id)	((id) & 0x7F)
 
-#define L2_TABLE_ENTRIES	(1 << 9)
-#define L1_TABLE_ENTRIES	(1 << 7)
-
 #define DESC_RING_BASE_PTR_SHIFT	6
 #define CXT_STATUS_PTR_SHIFT		4
 #define WRT_INDEX_PTR_SHIFT		3
