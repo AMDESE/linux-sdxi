@@ -30,8 +30,6 @@
 
 #define L2_TABLE_ENTRIES	(1 << 9)
 #define L1_TABLE_ENTRIES	(1 << 7)
-#define L2_TABLE_SIZE		4096
-#define L1_TABLE_SIZE		4096
 
 #define DESC_RING_BASE_PTR_SHIFT	6
 #define CXT_STATUS_PTR_SHIFT		4
