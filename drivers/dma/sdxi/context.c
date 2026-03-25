@@ -26,6 +26,14 @@
 
 #define DEFAULT_DESC_RING_ENTRIES 1024
 
+enum {
+	/*
+	 * The admin context always has ID 0. See SDXI 1.0 3.5
+	 * Administrative Context (Context 0).
+	 */
+	SDXI_ADMIN_CXT_ID = 0,
+};
+
 /*
  * Free context and its resources. @cxt may be partially allocated but
  * must have ->sdxi set.
@@ -392,7 +400,7 @@ struct sdxi_cxt *sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
 		return NULL;
 
 	sq = cxt->sq;
-	cxt->id = 0;
+	cxt->id = SDXI_ADMIN_CXT_ID;
 	cxt->db = sdxi->dbs + cxt->id * sdxi->db_stride;
 	ida_init(&cxt->akey_ida);
 	sdxi_ring_state_init(cxt->ring_state, &sq->cxt_sts->read_index,

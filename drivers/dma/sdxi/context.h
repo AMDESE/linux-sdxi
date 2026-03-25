@@ -51,10 +51,6 @@ struct sdxi_cxt {
 	struct sdxi_ring_state *ring_state;
 };
 
-enum sdxi_cxt_id {
-	SDXI_ADMIN_CXT_ID = 0,
-};
-
 struct sdxi_cxt *sdxi_admin_cxt_init(struct sdxi_dev *sdxi);
 void sdxi_admin_cxt_exit(struct sdxi_cxt *cxt);
 
