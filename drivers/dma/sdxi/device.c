@@ -192,9 +192,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 
 	/*
 	 * Constrain the number of client contexts supported by the
-	 * driver to what fits in a single L1 table. Up to 64K
-	 * contexts per function are allowed by the spec, so this is
-	 * likely to be a temporary limit.
+	 * driver to what fits in a single L1 table.
 	 */
 	sdxi->max_cxtid = min(SDXI_L1_TABLE_ENTRIES - 1,
 			      FIELD_GET(SDXI_MMIO_CAP1_MAX_CXT, cap1));
