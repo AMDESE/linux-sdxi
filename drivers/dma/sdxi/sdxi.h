@@ -39,6 +39,12 @@ struct sdxi_dev {
 	void __iomem *ctrl_regs;	/* virt addr of ctrl registers */
 	void __iomem *dbs;		/* virt addr of doorbells */
 
+	/* hardware capabilities (from cap0 & cap1) */
+	u32 db_stride;			/* doorbell stride in bytes */
+	u16 max_cxtid;			/* Maximum context ID allowed. */
+	u8 max_buffer;			/* Configured log2 buffer size minus 21. */
+	u32 op_grp_cap;			/* supported operation group cap */
+
 	bool has_mailbox;
 
 	const struct sdxi_bus_ops *bus_ops;
