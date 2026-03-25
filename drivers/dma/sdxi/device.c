@@ -164,8 +164,8 @@ static int sdxi_dev_stop(struct sdxi_dev *sdxi)
  */
 static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 {
+	u64 version, cap0, cap1, ctl2, cxt_l2, lv01_ptr;
 	struct sdxi_cxt_L2_ent *L2_ent;
-	u64 lv01_ptr, version, cxt_l2, cap0, cap1, ctl2;
 	int err;
 
 	/*
