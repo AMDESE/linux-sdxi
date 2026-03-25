@@ -208,7 +208,8 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	sdxi_write64(sdxi, SDXI_MMIO_CTL2, ctl2);
 
 	/* SDXI 1.0 4.1.8.2 Context Level 2 Table Setup */
-	sdxi->L2_table = dmam_alloc_coherent(sdxi_to_dev(sdxi), L2_TABLE_SIZE,
+	sdxi->L2_table = dmam_alloc_coherent(sdxi_to_dev(sdxi),
+					     sizeof(*sdxi->L2_table),
 					     &sdxi->L2_dma, GFP_KERNEL);
 	if (!sdxi->L2_table)
 		return -ENOMEM;
@@ -217,7 +218,8 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	sdxi_write64(sdxi, SDXI_MMIO_CXT_L2, cxt_l2);
 
 	/* SDXI 1.0 4.1.8.3 Context Level 1 Table Setup */
-	sdxi->L1_table = dmam_alloc_coherent(sdxi_to_dev(sdxi), L1_TABLE_SIZE,
+	sdxi->L1_table = dmam_alloc_coherent(sdxi_to_dev(sdxi),
+					     sizeof(*sdxi->L1_table),
 					     &sdxi->L1_dma, GFP_KERNEL);
 	if (!sdxi->L1_table)
 		return -ENOMEM;
