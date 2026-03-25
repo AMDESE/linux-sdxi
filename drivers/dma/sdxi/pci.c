@@ -59,12 +59,36 @@ static int sdxi_pci_init(struct sdxi_dev *sdxi)
 		return dev_err_probe(dev, PTR_ERR(sdxi->dbs),
 				     "failed to map doorbell region\n");
 
+	/* Mailbox registers are reserved without SR-IOV support. */
+	sdxi->has_mailbox = pdev->is_virtfn ||
+		pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_SRIOV);
+
 	pci_set_master(pdev);
 	return 0;
 }
 
+static int sdxi_pci_reset(struct sdxi_dev *sdxi)
+{
+	struct pci_dev *pdev = sdxi_to_pci_dev(sdxi);
+	int err;
+
+	/* Probe and remove hold the device lock; preserve PCI configuration. */
+	err = pci_reset_function_locked(pdev);
+	if (err) {
+		dev_err(&pdev->dev,
+			"function reset failed (%d), disabling bus mastering\n", err);
+		pci_clear_master(pdev);
+		if (!pci_wait_for_pending_transaction(pdev))
+			dev_warn(&pdev->dev,
+				 "PCIe transactions still pending after disabling bus mastering\n");
+	}
+
+	return err;
+}
+
 static const struct sdxi_bus_ops sdxi_pci_ops = {
 	.init = sdxi_pci_init,
+	.reset = sdxi_pci_reset,
 };
 
 static int sdxi_pci_probe(struct pci_dev *pdev,

@@ -5,15 +5,280 @@
  * Copyright Advanced Micro Devices, Inc.
  */
 
+#include <linux/bitfield.h>
+#include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/export.h>
+#include <linux/iopoll.h>
+#include <linux/jiffies.h>
 #include <linux/slab.h>
+#include <linux/time.h>
 
+#include "mmio.h"
 #include "sdxi.h"
+
+enum sdxi_fn_gsv {
+	SDXI_GSV_STOP     = 0,
+	SDXI_GSV_INIT     = 1,
+	SDXI_GSV_ACTIVE   = 2,
+	SDXI_GSV_STOPG_SF = 3,
+	SDXI_GSV_STOPG_HD = 4,
+	SDXI_GSV_ERROR    = 5,
+};
+
+static const char *const gsv_strings[] = {
+	[SDXI_GSV_STOP]     = "stopped",
+	[SDXI_GSV_INIT]     = "initializing",
+	[SDXI_GSV_ACTIVE]   = "active",
+	[SDXI_GSV_STOPG_SF] = "soft stopping",
+	[SDXI_GSV_STOPG_HD] = "hard stopping",
+	[SDXI_GSV_ERROR]    = "error",
+};
+
+static const char *gsv_str(enum sdxi_fn_gsv gsv)
+{
+	if ((size_t)gsv < ARRAY_SIZE(gsv_strings))
+		return gsv_strings[(size_t)gsv];
+
+	return "unknown";
+}
+
+enum sdxi_fn_gsr {
+	SDXI_GSRV_RESET   = 0,
+	SDXI_GSRV_STOP_SF = 1,
+	SDXI_GSRV_STOP_HD = 2,
+	SDXI_GSRV_ACTIVE  = 3,
+};
+
+static const char *const gsr_strings[] = {
+	[SDXI_GSRV_RESET]   = "reset",
+	[SDXI_GSRV_STOP_SF] = "soft stop",
+	[SDXI_GSRV_STOP_HD] = "hard stop",
+	[SDXI_GSRV_ACTIVE]  = "activate",
+};
+
+static const char *gsr_str(enum sdxi_fn_gsr gsr)
+{
+	if ((size_t)gsr < ARRAY_SIZE(gsr_strings))
+		return gsr_strings[(size_t)gsr];
+
+	return "unknown";
+}
+
+static enum sdxi_fn_gsv sdxi_dev_gsv(const struct sdxi_dev *sdxi)
+{
+	u64 sts0 = sdxi_read64(sdxi, SDXI_MMIO_STS0);
+	enum sdxi_fn_gsv gsv = FIELD_GET(SDXI_MMIO_STS0_FN_GSV, sts0);
+
+	dev_dbg(sdxi->dev, "MMIO_STS0.fn_gsv = %#x (%s)\n", gsv, gsv_str(gsv));
+
+	switch (gsv) {
+	case SDXI_GSV_STOP ... SDXI_GSV_ERROR:
+		break;
+	default:
+		dev_warn_ratelimited(sdxi->dev, "unknown gsv %u\n", gsv);
+		break;
+	}
+
+	return gsv;
+}
+
+static const unsigned long gsv_poll_interval_us = USEC_PER_MSEC * 100;
+static const unsigned long gsv_transition_timeout_us = USEC_PER_SEC * 1;
+
+#define sdxi_dev_gsv_poll(sdxi, val, cond)				\
+	read_poll_timeout(sdxi_dev_gsv, val, cond, gsv_poll_interval_us, \
+			  gsv_transition_timeout_us, false, sdxi)
+
+static void sdxi_write_fn_gsr(struct sdxi_dev *sdxi, enum sdxi_fn_gsr cmd)
+{
+	u64 ctl0 = sdxi_read64(sdxi, SDXI_MMIO_CTL0);
+
+	dev_dbg(sdxi->dev, "MMIO_CTL0.fn_gsr = %#x (%s)\n", cmd, gsr_str(cmd));
+
+	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_GSR, &ctl0, cmd);
+	sdxi_write64(sdxi, SDXI_MMIO_CTL0, ctl0);
+}
+
+/*
+ * How to make progress toward GSV_STOP from each function state. See
+ * SDXI 1.0 Figure 4-1: SDXI Function States and State Transitions.
+ *
+ * The function ordinarily leaves a @transient state without software
+ * intervention, so @cmd applies only to the others. @stall_cmd, if any,
+ * is issued when the state outlasts the poll timeout. @next is the set
+ * of states software may observe after the step.
+ */
+struct gsv_stop_step {
+	bool transient:1;
+	bool issue_stall_cmd:1;
+	enum sdxi_fn_gsr cmd;
+	enum sdxi_fn_gsr stall_cmd;
+	unsigned long next;
+};
+
+static const struct gsv_stop_step gsv_stop_steps[] = {
+	[SDXI_GSV_STOP] = { },
+	[SDXI_GSV_INIT] = {
+		/*
+		 * Any fn_gsr write other than SDXI_GSRV_ACTIVE during
+		 * initialization forces HaltErr:Fn -> GSV_ERROR.
+		 * GSV_STOPG_HD and GSV_STOP are valid next values since
+		 * the stop command could race with a GSV_INIT ->
+		 * GSV_ACTIVE transition.
+		 */
+		.transient = true,
+		.issue_stall_cmd = true,
+		.stall_cmd = SDXI_GSRV_STOP_HD,
+		.next = BIT(SDXI_GSV_ACTIVE) | BIT(SDXI_GSV_ERROR) |
+			BIT(SDXI_GSV_STOPG_HD) | BIT(SDXI_GSV_STOP),
+	},
+	[SDXI_GSV_ACTIVE] = {
+		.cmd = SDXI_GSRV_STOP_SF,
+		.next = BIT(SDXI_GSV_STOPG_SF) | BIT(SDXI_GSV_STOP) |
+			BIT(SDXI_GSV_ERROR),
+	},
+	[SDXI_GSV_STOPG_SF] = {
+		.transient = true,
+		.issue_stall_cmd = true,
+		.stall_cmd = SDXI_GSRV_STOP_HD,
+		.next = BIT(SDXI_GSV_STOPG_HD) | BIT(SDXI_GSV_STOP) |
+			BIT(SDXI_GSV_ERROR),
+	},
+	[SDXI_GSV_STOPG_HD] = {
+		/* All fn_gsr writes are ignored here; only waiting helps. */
+		.transient = true,
+		.next = BIT(SDXI_GSV_STOP) | BIT(SDXI_GSV_ERROR),
+	},
+	[SDXI_GSV_ERROR] = {
+		.cmd = SDXI_GSRV_RESET,
+		.next = BIT(SDXI_GSV_STOP),
+	},
+};
+
+/* Drive the function to GSV_STOP from any state. */
+static int sdxi_dev_stop(struct sdxi_dev *sdxi)
+{
+	unsigned long stepped_from = 0;
+	enum sdxi_fn_gsv gsv;
+
+	/*
+	 * Each step must reach a state we have not already stepped from.
+	 * The table admits no cycles, so revisiting one means the device
+	 * is not behaving as specified.
+	 */
+	for (gsv = sdxi_dev_gsv(sdxi); gsv != SDXI_GSV_STOP; ) {
+		const struct gsv_stop_step *step;
+		enum sdxi_fn_gsv from = gsv;
+
+		if ((size_t)gsv >= ARRAY_SIZE(gsv_stop_steps))
+			break;
+		if (stepped_from & BIT(gsv))
+			break;
+		stepped_from |= BIT(gsv);
+
+		step = &gsv_stop_steps[gsv];
+		if (!step->transient)
+			sdxi_write_fn_gsr(sdxi, step->cmd);
+
+		if (sdxi_dev_gsv_poll(sdxi, gsv, gsv != from)) {
+			if (!step->issue_stall_cmd)
+				break;
+			dev_notice(sdxi->dev, "stop: %s, issuing %s\n",
+				   gsv_str(from), gsr_str(step->stall_cmd));
+			sdxi_write_fn_gsr(sdxi, step->stall_cmd);
+			if (sdxi_dev_gsv_poll(sdxi, gsv, gsv != from))
+				break;
+		}
+
+		WARN_ONCE(!(BIT(gsv) & step->next), "unexpected %s -> %s\n",
+			  gsv_str(from), gsv_str(gsv));
+	}
+
+	if (gsv == SDXI_GSV_STOP)
+		return 0;
+
+	dev_err(sdxi->dev, "stop: stuck at MMIO_STS0.fn_gsv = %#x (%s)\n",
+		gsv, gsv_str(gsv));
+
+	return sdxi->bus_ops->reset ? sdxi->bus_ops->reset(sdxi) : -EIO;
+}
+
+/* Stop the function and discard inherited MMIO configuration. */
+static int sdxi_fn_prepare(struct sdxi_dev *sdxi)
+{
+	u64 cap1, ctl0, ctl2, err_cfg, rkey;
+	int err;
+
+	/* Disable inherited error logging before stop can provoke an error. */
+	err_cfg = sdxi_read64(sdxi, SDXI_MMIO_ERR_CFG);
+	FIELD_MODIFY(SDXI_MMIO_ERR_CFG_EN, &err_cfg, 0);
+	sdxi_write64(sdxi, SDXI_MMIO_ERR_CFG, err_cfg);
+	err_cfg = sdxi_read64(sdxi, SDXI_MMIO_ERR_CFG);
+	if (FIELD_GET(SDXI_MMIO_ERR_CFG_EN, err_cfg)) {
+		dev_err(sdxi->dev, "failed to disable error logging\n");
+		return -EIO;
+	}
+
+	/*
+	 * Ensure the function is in GSV_STOP state, then clear ctl0's
+	 * pasid and error interrupt configuration while preserving
+	 * any assigned group ID (fn_grp_id).
+	 */
+	err = sdxi_dev_stop(sdxi);
+	if (err)
+		return err;
+
+	ctl0 = sdxi_read64(sdxi, SDXI_MMIO_CTL0);
+	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_ERR_INTR_EN, &ctl0, 0);
+	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_PASID_VL, &ctl0, 0);
+	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_PASID, &ctl0, 0);
+	sdxi_write64(sdxi, SDXI_MMIO_CTL0, ctl0);
+
+	/* Restore CTL2's reset limits, with operation groups disabled. */
+	cap1 = sdxi_read64(sdxi, SDXI_MMIO_CAP1);
+	ctl2 = FIELD_PREP(SDXI_MMIO_CTL2_MAX_BUFFER,
+			  FIELD_GET(SDXI_MMIO_CAP1_MAX_BUFFER, cap1));
+	ctl2 |= FIELD_PREP(SDXI_MMIO_CTL2_MAX_AKEY_SZ,
+			   FIELD_GET(SDXI_MMIO_CAP1_MAX_AKEY_SZ, cap1));
+	ctl2 |= FIELD_PREP(SDXI_MMIO_CTL2_MAX_CXT,
+			   FIELD_GET(SDXI_MMIO_CAP1_MAX_CXT, cap1));
+	sdxi_write64(sdxi, SDXI_MMIO_CTL2, ctl2);
+
+	/* No inherited context or remote-access tables are owned by us. */
+	sdxi_write64(sdxi, SDXI_MMIO_CXT_L2, 0);
+	if (FIELD_GET(SDXI_MMIO_CAP1_RKEY_CAP, cap1)) {
+		rkey = sdxi_read64(sdxi, SDXI_MMIO_RKEY);
+		FIELD_MODIFY(SDXI_MMIO_RKEY_EN, &rkey, 0);
+		sdxi_write64(sdxi, SDXI_MMIO_RKEY, rkey);
+		rkey = sdxi_read64(sdxi, SDXI_MMIO_RKEY);
+		if (FIELD_GET(SDXI_MMIO_RKEY_EN, rkey)) {
+			dev_err(sdxi->dev, "failed to disable RKey access\n");
+			return -EIO;
+		}
+		sdxi_write64(sdxi, SDXI_MMIO_RKEY, 0);
+	}
+
+	/* Clear error-log state using the status register's RW1C semantics. */
+	sdxi_write64(sdxi, SDXI_MMIO_ERR_CTL, 0);
+	sdxi_write64(sdxi, SDXI_MMIO_ERR_STS,
+		     SDXI_MMIO_ERR_STS_STS_BIT | SDXI_MMIO_ERR_STS_OVF_BIT |
+		     SDXI_MMIO_ERR_STS_ERR_BIT);
+	sdxi_write64(sdxi, SDXI_MMIO_ERR_CFG, 0);
+	sdxi_write64(sdxi, SDXI_MMIO_ERR_WRT, 0);
+	sdxi_write64(sdxi, SDXI_MMIO_ERR_RD, 0);
+
+	/* Mailbox contents and commands belong to the peer protocol. */
+	if (sdxi->has_mailbox)
+		sdxi_write64(sdxi, SDXI_MMIO_MB_CTL, 0);
+
+	return 0;
+}
 
 int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 {
 	struct sdxi_dev *sdxi;
+	int err;
 
 	sdxi = devm_kzalloc(dev, sizeof(*sdxi), GFP_KERNEL);
 	if (!sdxi)
@@ -23,7 +288,11 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 	sdxi->bus_ops = ops;
 	dev_set_drvdata(dev, sdxi);
 
-	return sdxi->bus_ops->init(sdxi);
+	err = sdxi->bus_ops->init(sdxi);
+	if (err)
+		return err;
+
+	return sdxi_fn_prepare(sdxi);
 }
 EXPORT_SYMBOL_NS_GPL(sdxi_register, "SDXI");
 

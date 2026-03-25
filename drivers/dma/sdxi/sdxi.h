@@ -9,7 +9,11 @@
 #define DMA_SDXI_H
 
 #include <linux/compiler_types.h>
+#include <linux/dev_printk.h>
+#include <linux/io.h>
 #include <linux/types.h>
+
+#include "mmio.h"
 
 struct sdxi_dev;
 
@@ -23,6 +27,11 @@ struct sdxi_bus_ops {
 	 *        function initialization.
 	 */
 	int (*init)(struct sdxi_dev *sdxi);
+	/**
+	 * @reset: Fallback to bus-specific reset in case SDXI-native
+	 *         reset fails.
+	 */
+	int (*reset)(struct sdxi_dev *sdxi);
 };
 
 struct sdxi_dev {
@@ -30,9 +39,21 @@ struct sdxi_dev {
 	void __iomem *ctrl_regs;	/* virt addr of ctrl registers */
 	void __iomem *dbs;		/* virt addr of doorbells */
 
+	bool has_mailbox;
+
 	const struct sdxi_bus_ops *bus_ops;
 };
 
 int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops);
+
+static inline u64 sdxi_read64(const struct sdxi_dev *sdxi, enum sdxi_reg reg)
+{
+	return readq(sdxi->ctrl_regs + reg);
+}
+
+static inline void sdxi_write64(struct sdxi_dev *sdxi, enum sdxi_reg reg, u64 val)
+{
+	writeq(val, sdxi->ctrl_regs + reg);
+}
 
 #endif /* DMA_SDXI_H */

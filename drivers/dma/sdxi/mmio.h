@@ -13,10 +13,57 @@
 
 enum sdxi_reg {
 	/* SDXI 1.0 9.1 General Control and Status Registers */
+	SDXI_MMIO_CTL0       = 0x00000,
+	SDXI_MMIO_CTL2       = 0x00010,
+	SDXI_MMIO_STS0       = 0x00100,
 	SDXI_MMIO_CAP1       = 0x00208,
+
+	/* SDXI 1.0 9.2 Context and RKey Table Registers */
+	SDXI_MMIO_CXT_L2     = 0x10000,
+	SDXI_MMIO_RKEY       = 0x10100,
+
+	/* SDXI 1.0 9.3 Error Logging Control and Status Registers */
+	SDXI_MMIO_ERR_CTL    = 0x20000,
+	SDXI_MMIO_ERR_STS    = 0x20008,
+	SDXI_MMIO_ERR_CFG    = 0x20010,
+	SDXI_MMIO_ERR_WRT    = 0x20020,
+	SDXI_MMIO_ERR_RD     = 0x20028,
+
+	/* SDXI 1.0 9.4 MBOX Mailbox Registers */
+	SDXI_MMIO_MB_CTL     = 0x30000,
 };
 
+/* SDXI 1.0 Table 9-2: MMIO_CTL0 */
+#define SDXI_MMIO_CTL0_FN_GSR         GENMASK_ULL(1, 0)
+#define SDXI_MMIO_CTL0_FN_PASID_VL    BIT_ULL(2)
+#define SDXI_MMIO_CTL0_FN_ERR_INTR_EN BIT_ULL(4)
+#define SDXI_MMIO_CTL0_FN_PASID       GENMASK_ULL(27, 8)
+
+/* SDXI 1.0 Table 9-4: MMIO_CTL2 */
+#define SDXI_MMIO_CTL2_MAX_BUFFER  GENMASK_ULL(3, 0)
+#define SDXI_MMIO_CTL2_MAX_AKEY_SZ GENMASK_ULL(15, 12)
+#define SDXI_MMIO_CTL2_MAX_CXT     GENMASK_ULL(31, 16)
+#define SDXI_MMIO_CTL2_OPB_000_AVL GENMASK_ULL(63, 32)
+
+/* SDXI 1.0 Table 9-5: MMIO_STS0 */
+#define SDXI_MMIO_STS0_FN_GSV GENMASK_ULL(2, 0)
+
 /* SDXI 1.0 Table 9-7: MMIO_CAP1 */
-#define SDXI_MMIO_CAP1_MMIO64 BIT_ULL(6)
+#define SDXI_MMIO_CAP1_MAX_BUFFER  GENMASK_ULL(3, 0)
+#define SDXI_MMIO_CAP1_RKEY_CAP    BIT_ULL(4)
+#define SDXI_MMIO_CAP1_MMIO64      BIT_ULL(6)
+#define SDXI_MMIO_CAP1_MAX_AKEY_SZ GENMASK_ULL(15, 12)
+#define SDXI_MMIO_CAP1_MAX_CXT     GENMASK_ULL(31, 16)
+
+/* SDXI 1.0 Table 9-10: MMIO_RKEY */
+#define SDXI_MMIO_RKEY_EN BIT_ULL(0)
+
+/* SDXI 1.0 Table 9-12: MMIO_ERR_STS (write one to clear) */
+#define SDXI_MMIO_ERR_STS_STS_BIT BIT_ULL(0)
+#define SDXI_MMIO_ERR_STS_OVF_BIT BIT_ULL(1)
+#define SDXI_MMIO_ERR_STS_ERR_BIT BIT_ULL(3)
+
+/* SDXI 1.0 Table 9-13: MMIO_ERR_CFG */
+#define SDXI_MMIO_ERR_CFG_EN BIT_ULL(0)
 
 #endif  /* DMA_SDXI_MMIO_H */
