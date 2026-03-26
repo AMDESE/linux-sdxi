@@ -210,6 +210,36 @@ static int sdxi_dev_stop(struct sdxi_dev *sdxi)
 	return sdxi->bus_ops->reset ? sdxi->bus_ops->reset(sdxi) : -EIO;
 }
 
+/*
+ * Activate a stopped function. GSRV_ACTIVE takes it through the
+ * transient GSV_INIT state to GSV_ACTIVE or GSV_ERROR. See SDXI 1.0
+ * 4.1.8.9.
+ */
+static int sdxi_dev_start(struct sdxi_dev *sdxi)
+{
+	const unsigned long settled = BIT(SDXI_GSV_ACTIVE) | BIT(SDXI_GSV_ERROR);
+	enum sdxi_fn_gsv gsv = sdxi_dev_gsv(sdxi);
+
+	if (gsv != SDXI_GSV_STOP) {
+		dev_err(sdxi->dev,
+			"start: MMIO_STS0.fn_gsv = %#x (%s) on entry\n",
+			gsv, gsv_str(gsv));
+		return -EBUSY;
+	}
+
+	sdxi_write_fn_gsr(sdxi, SDXI_GSRV_ACTIVE);
+
+	if (sdxi_dev_gsv_poll(sdxi, gsv, BIT(gsv) & settled) ||
+	    gsv != SDXI_GSV_ACTIVE) {
+		dev_err(sdxi->dev,
+			"start: MMIO_STS0.fn_gsv = %#x (%s) after activate\n",
+			gsv, gsv_str(gsv));
+		return -EIO;
+	}
+
+	return 0;
+}
+
 /* Stop the function and discard inherited MMIO configuration. */
 static int sdxi_fn_prepare(struct sdxi_dev *sdxi)
 {
@@ -357,7 +387,20 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	if (err)
 		return err;
 
-	return 0;
+	/*
+	 * SDXI 1.0 4.1.8.9: Set MMIO_CTL0.fn_gsr to GSRV_ACTIVE and
+	 * wait for MMIO_STS0.fn_gsv to reach GSV_ACTIVE or GSV_ERROR.
+	 *
+	 * We haven't queued any descriptors to the admin context at
+	 * this point, so the admin context jump start (SDXI 1.0
+	 * 4.1.8.10.b) is accomplished later when other
+	 * code starts client contexts.
+	 */
+	err = sdxi_dev_start(sdxi);
+	if (err)
+		sdxi_dev_stop(sdxi);
+
+	return err;
 }
 
 static int sdxi_device_init(struct sdxi_dev *sdxi)
@@ -402,6 +445,14 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 	return sdxi_device_init(sdxi);
 }
 EXPORT_SYMBOL_NS_GPL(sdxi_register, "SDXI");
+
+void sdxi_unregister(struct device *dev)
+{
+	struct sdxi_dev *sdxi = dev_get_drvdata(dev);
+
+	sdxi_dev_stop(sdxi);
+}
+EXPORT_SYMBOL_NS_GPL(sdxi_unregister, "SDXI");
 
 MODULE_AUTHOR("Wei Huang");
 MODULE_AUTHOR("Nathan Lynch");
