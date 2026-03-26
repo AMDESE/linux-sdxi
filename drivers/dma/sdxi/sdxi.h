@@ -52,6 +52,8 @@ struct sdxi_dev {
 
 	struct dma_pool *cxt_ctl_pool;
 
+	struct sdxi_cxt *admin_cxt;
+
 	bool has_mailbox;
 
 	const struct sdxi_bus_ops *bus_ops;
