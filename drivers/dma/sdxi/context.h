@@ -9,13 +9,32 @@
 #define DMA_SDXI_CONTEXT_H
 
 #include <linux/array_size.h>
+#include <linux/build_bug.h>
 #include <linux/dma-mapping.h>
 #include <linux/idr.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
+#include <linux/sizes.h>
 #include <linux/string.h>
+#include <linux/types.h>
 #include <asm/barrier.h>
 
+#include "hw.h"
 #include "sdxi.h"
+
+/*
+ * The size of the AKey table is flexible, from 4KB to 1MB. Always use
+ * the minimum size for now.
+ */
+struct sdxi_akey_table {
+	struct sdxi_akey_ent entry[SZ_4K / sizeof(struct sdxi_akey_ent)];
+};
+
+/* For encoding the akey table size in CXT_L1_ENT's akey_sz. */
+static inline u8 akey_table_order(const struct sdxi_akey_table *tbl)
+{
+	static_assert(sizeof(*tbl) == SZ_4K);
+	return 0;
+}
 
 /* Submission Queue */
 struct sdxi_sq {
