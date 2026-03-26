@@ -1,7 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Header for sq and descriptor management
- *
  * Copyright (C) 2026 Advanced Micro Devices, Inc.
  */
 

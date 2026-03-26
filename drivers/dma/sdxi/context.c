@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * SDXI submission queue (sq) and descriptor management
+ * SDXI context management
  *
  * Copyright (C) 2026 Advanced Micro Devices, Inc.
  */
