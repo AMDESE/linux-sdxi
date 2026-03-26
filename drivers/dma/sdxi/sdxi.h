@@ -45,6 +45,11 @@ struct sdxi_dev {
 	u8 max_buffer;			/* Configured log2 buffer size minus 21. */
 	u32 op_grp_cap;			/* supported operation group cap */
 
+	struct sdxi_cxt_L2_table *L2_table;
+	dma_addr_t L2_dma;
+	struct sdxi_cxt_L1_table *L1_table;
+	dma_addr_t L1_dma;
+
 	bool has_mailbox;
 
 	const struct sdxi_bus_ops *bus_ops;
