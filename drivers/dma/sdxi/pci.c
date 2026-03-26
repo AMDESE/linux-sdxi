@@ -67,6 +67,7 @@ static int sdxi_pci_probe(struct pci_dev *pdev,
 
 static void sdxi_pci_remove(struct pci_dev *pdev)
 {
+	sdxi_unregister(&pdev->dev);
 	pci_disable_sriov(pdev);
 }
 
