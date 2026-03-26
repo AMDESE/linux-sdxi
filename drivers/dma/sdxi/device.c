@@ -20,6 +20,7 @@
 #include <linux/slab.h>
 #include <linux/time.h>
 
+#include "context.h"
 #include "hw.h"
 #include "mmio.h"
 #include "sdxi.h"
@@ -289,6 +290,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 {
 	u64 version, cap0, cap1, ctl2, cxt_l2, lv01_ptr;
 	struct sdxi_cxt_L2_ent *L2_ent;
+	int err;
 
 	version = sdxi_read64(sdxi, SDXI_MMIO_VERSION);
 	dev_info(sdxi->dev, "SDXI %llu.%llu device found\n",
@@ -348,6 +350,16 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 		   FIELD_PREP(SDXI_CXT_L2_ENT_LV01_PTR,
 			      sdxi->L1_dma >> ilog2(SZ_4K));
 	L2_ent->lv01_ptr = cpu_to_le64(lv01_ptr);
+
+	/*
+	 * SDXI 1.0 4.1.8.4 Administrative Context
+	 *
+	 * The admin context will not consume descriptors until we
+	 * write its doorbell later.
+	 */
+	err = sdxi_admin_cxt_init(sdxi);
+	if (err)
+		return err;
 
 	return 0;
 }
