@@ -7,17 +7,20 @@
 
 #define pr_fmt(fmt)     "SDXI: " fmt
 
+#include <linux/align.h>
+#include <linux/bitfield.h>
 #include <linux/bug.h>
 #include <linux/cleanup.h>
-#include <linux/delay.h>
 #include <linux/device/devres.h>
-#include <linux/dma-direction.h>
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
+#include <linux/errno.h>
 #include <linux/iommu.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
+#include <linux/slab.h>
 #include <linux/types.h>
-#include <linux/wordpart.h>
+#include <asm/barrier.h>
+#include <asm/rwonce.h>
 
 #include "completion.h"
 #include "context.h"
