@@ -52,6 +52,12 @@ struct sdxi_cxt {
 
 int sdxi_admin_cxt_init(struct sdxi_dev *sdxi);
 struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi);
+/*
+ * Caller must exclude users and stop the client before release. An update or
+ * synchronization failure retains the invalidated context for device teardown;
+ * the caller must not reuse it.
+ */
+int sdxi_cxt_exit(struct sdxi_cxt *cxt);
 void sdxi_client_cxts_exit(struct sdxi_dev *sdxi);
 
 enum sdxi_submit_flags {
