@@ -51,8 +51,7 @@ struct sdxi_cxt {
 	struct sdxi_ring_state *ring_state;
 };
 
-struct sdxi_cxt *sdxi_admin_cxt_init(struct sdxi_dev *sdxi);
-void sdxi_admin_cxt_exit(struct sdxi_cxt *cxt);
+int sdxi_admin_cxt_init(struct sdxi_dev *sdxi);
 
 struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi);
 void sdxi_cxt_exit(struct sdxi_cxt *cxt);

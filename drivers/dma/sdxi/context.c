@@ -10,6 +10,7 @@
 #include <linux/bug.h>
 #include <linux/cleanup.h>
 #include <linux/delay.h>
+#include <linux/device/devres.h>
 #include <linux/dma-direction.h>
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
@@ -392,13 +393,21 @@ static void unregister_cxt(struct sdxi_cxt *cxt)
 	xa_erase(&cxt->sdxi->client_cxts, cxt->id);
 }
 
-struct sdxi_cxt *sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
+static void free_admin_cxt(void *ptr)
 {
+	struct sdxi_dev *sdxi = ptr;
+
+	sdxi_free_cxt(sdxi->admin_cxt);
+}
+
+int sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
+{
+	int err;
 	struct sdxi_sq *sq;
 
 	struct sdxi_cxt *cxt __free(sdxi_cxt) = sdxi_alloc_cxt(sdxi);
 	if (!cxt)
-		return NULL;
+		return -ENOMEM;
 
 	sq = cxt->sq;
 	cxt->id = SDXI_ADMIN_CXT_ID;
@@ -407,17 +416,13 @@ struct sdxi_cxt *sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
 	sdxi_ring_state_init(cxt->ring_state, &sq->cxt_sts->read_index,
 			     sq->write_index, sq->ring_entries, sq->desc_ring);
 
-	if (sdxi_publish_cxt(cxt))
-		return NULL;
+	err = sdxi_publish_cxt(cxt);
+	if (err)
+		return err;
 
-	return_ptr(cxt);
-}
+	sdxi->admin_cxt = no_free_ptr(cxt);
 
-void sdxi_admin_cxt_exit(struct sdxi_cxt *cxt)
-{
-	if (WARN_ON(!sdxi_cxt_is_admin(cxt)))
-		return;
-	sdxi_free_cxt(cxt);
+	return devm_add_action_or_reset(sdxi_to_dev(sdxi), free_admin_cxt, sdxi);
 }
 
 int sdxi_start_cxt(struct sdxi_cxt *cxt)

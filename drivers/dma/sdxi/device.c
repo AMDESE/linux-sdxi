@@ -239,9 +239,9 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	 * The admin context will not consume descriptors until we
 	 * write its doorbell later.
 	 */
-	sdxi->admin_cxt = sdxi_admin_cxt_init(sdxi);
-	if (!sdxi->admin_cxt)
-		return -ENOMEM;
+	err = sdxi_admin_cxt_init(sdxi);
+	if (err)
+		return err;
 
 	/* SDXI 1.0 4.1.8.4.b: Set CXT_STS.state to CXTV_RUN. */
 	sdxi->admin_cxt->sq->cxt_sts->state = FIELD_PREP(SDXI_CXT_STS_STATE,
@@ -252,7 +252,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	 */
 	err = sdxi_dev_start(sdxi);
 	if (err)
-		goto admin_cxt_exit;
+		return err;
 
 	/*
 	 * SDXI 1.0 4.1.8.10.b: Start the admin context using method
@@ -264,10 +264,6 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	iowrite64(0, sdxi->admin_cxt->db);
 
 	return 0;
-
-admin_cxt_exit:
-	sdxi_admin_cxt_exit(sdxi->admin_cxt);
-	return err;
 }
 
 static int sdxi_create_dma_pool(struct sdxi_dev *sdxi, struct dma_pool **pool,
@@ -309,8 +305,6 @@ static void sdxi_device_exit(struct sdxi_dev *sdxi)
 
 	xa_for_each(&sdxi->client_cxts, index, cxt)
 		sdxi_cxt_exit(cxt);
-
-	sdxi_admin_cxt_exit(sdxi->admin_cxt);
 
 	sdxi_dev_stop(sdxi);
 }
