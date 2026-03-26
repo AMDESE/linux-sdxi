@@ -23,6 +23,7 @@
 
 #include <linux/bits.h>
 #include <linux/build_bug.h>
+#include <linux/stddef.h>
 #include <linux/types.h>
 #include <asm/byteorder.h>
 
@@ -77,5 +78,20 @@ struct sdxi_cxt_sts {
 	__le64 read_index;
 } __packed __aligned(16);
 static_assert(sizeof(struct sdxi_cxt_sts) == 16);
+
+struct sdxi_desc {
+	union {
+		/*
+		 * SDXI 1.0 Table 6-3: DSC_GENERIC SDXI Descriptor
+		 * Common Header and Footer Format
+		 */
+		struct_group_tagged(sdxi_dsc_generic, generic,
+			__le32 opcode;
+			__u8 operation[52];
+			__le64 csb_ptr;
+		);
+	};
+} __packed __aligned(64);
+static_assert(sizeof(struct sdxi_desc) == 64);
 
 #endif /* DMA_SDXI_HW_H */
