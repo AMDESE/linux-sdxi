@@ -106,6 +106,44 @@ static struct sdxi_cxt *sdxi_alloc_cxt(struct sdxi_dev *sdxi)
 	return_ptr(cxt);
 }
 
+/*
+ * Signal the function that a client context's control structures have
+ * been modified so it discards any privately cached copies of them.
+ * DSC_SYNC.CXT is required before the operation can be considered
+ * complete.
+ */
+static int sdxi_cxt_update(const struct sdxi_cxt *cxt)
+{
+	struct sdxi_cxt *adm = to_admin_cxt(cxt);
+	struct sdxi_ring_state *rs = adm->ring_state;
+	struct sdxi_slot upd, sync;
+	struct sdxi_ring_resv resv;
+	struct sdxi_cst_blk *cst;
+	int err;
+
+	might_sleep();
+
+	err = sdxi_ring_reserve(rs, 2, &resv);
+	if (err)
+		return err;
+
+	upd = sdxi_ring_resv_slot(&resv, 0);
+	sync = sdxi_ring_resv_slot(&resv, 1);
+
+	sdxi_encode_cxt_upd(sdxi_slot_desc(upd), &(const struct sdxi_cxt_upd) {
+			.level = SDXI_CXT_UPD_LVL_L1,
+			.range = sdxi_cxt_range_single(cxt->id),
+		});
+	sdxi_encode_sync(sdxi_slot_desc(sync), &(const struct sdxi_sync) {
+			.filter = SDXI_SYNC_FLT_CXT,
+			.range = sdxi_cxt_range_single(cxt->id),
+		});
+	sdxi_cxt_submit(adm, upd, NULL, 0);
+	sdxi_cxt_submit(adm, sync, &cst, SDXI_CXT_SUBMIT_KICK);
+
+	return sdxi_cst_blk_poll(cst);
+}
+
 struct sdxi_cxt_ctl_cfg {
 	dma_addr_t ds_ring_ptr;
 	dma_addr_t cxt_sts_ptr;
@@ -146,6 +184,16 @@ static int configure_cxt_ctl(struct sdxi_cxt_ctl *ctl, const struct sdxi_cxt_ctl
 	WRITE_ONCE(ctl->ds_ring_ptr, cpu_to_le64(ds_ring_ptr));
 
 	return 0;
+}
+
+static void invalidate_cxt_ctl(struct sdxi_cxt_ctl *ctl)
+{
+	u64 ds_ring_ptr = le64_to_cpu(ctl->ds_ring_ptr);
+
+	FIELD_MODIFY(SDXI_CXT_CTL_VL, &ds_ring_ptr, 0);
+	WRITE_ONCE(ctl->ds_ring_ptr, cpu_to_le64(ds_ring_ptr));
+	dma_wmb();
+	*ctl = (typeof(*ctl)) { 0 };
 }
 
 /*
@@ -200,6 +248,16 @@ static int configure_L1_entry(struct sdxi_cxt_L1_ent *ent,
 	WRITE_ONCE(ent->cxt_ctl_ptr, cpu_to_le64(cxt_ctl_ptr));
 
 	return 0;
+}
+
+static void invalidate_L1_entry(struct sdxi_cxt_L1_ent *ent)
+{
+	u64 cxt_ctl_ptr = le64_to_cpu(ent->cxt_ctl_ptr);
+
+	FIELD_MODIFY(SDXI_CXT_L1_ENT_VL, &cxt_ctl_ptr, 0);
+	WRITE_ONCE(ent->cxt_ctl_ptr, cpu_to_le64(cxt_ctl_ptr));
+	dma_wmb();
+	*ent = (typeof(*ent)) { 0 };
 }
 
 /*
@@ -414,4 +472,39 @@ void sdxi_cxt_submit(struct sdxi_cxt *cxt, struct sdxi_slot slot,
 
 	if (flags & SDXI_CXT_SUBMIT_KICK)
 		sdxi_cxt_kick(cxt);
+}
+
+/*
+ * Release an unused, stopped client context. On update/sync failure the
+ * context remains owned by the device and its resources are retained for
+ * cleanup after function shutdown; the caller must not reuse it.
+ */
+int sdxi_cxt_exit(struct sdxi_cxt *cxt)
+{
+	struct sdxi_dev *sdxi = cxt->sdxi;
+	struct sdxi_cxt_L1_ent *ent;
+	u8 state;
+	int err;
+
+	if (WARN_ON(sdxi_cxt_is_admin(cxt)))
+		return -EINVAL;
+
+	state = FIELD_GET(SDXI_CXT_STS_STATE, READ_ONCE(cxt->sq->cxt_sts.state));
+	if (state != CXTV_STOP_SW && state != CXTV_STOP_FN && state != CXTV_ERR_FN)
+		return -EBUSY;
+
+	ent = &sdxi->L1_table->entry[ID_TO_L1_INDEX(cxt->id)];
+	invalidate_L1_entry(ent);
+	invalidate_cxt_ctl(cxt->cxt_ctl);
+
+	err = sdxi_cxt_update(cxt);
+	if (err) {
+		dev_err(sdxi->dev,
+			"context %u release failed (%d), retaining resources until function shutdown\n",
+			cxt->id, err);
+		return err;
+	}
+
+	sdxi_free_cxt(cxt);
+	return 0;
 }
