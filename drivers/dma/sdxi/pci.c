@@ -121,5 +121,5 @@ static struct pci_driver sdxi_driver = {
 
 MODULE_AUTHOR("Wei Huang <wei.huang2@amd.com>");
 MODULE_DESCRIPTION(SDXI_DRV_DESC);
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");
 module_pci_driver(sdxi_driver);
