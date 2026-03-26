@@ -413,6 +413,8 @@ int sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
 		return -ENOMEM;
 
 	sq = cxt->sq;
+	/* SDXI 1.0 4.1.8.4.b: Set CXT_STS.state to CXTV_RUN. */
+	sq->cxt_sts->state = FIELD_PREP(SDXI_CXT_STS_STATE, CXTV_RUN);
 	cxt->id = SDXI_ADMIN_CXT_ID;
 	cxt->db = sdxi->dbs + cxt->id * sdxi->db_stride;
 	ida_init(&cxt->akey_ida);
