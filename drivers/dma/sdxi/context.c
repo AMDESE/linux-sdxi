@@ -329,12 +329,7 @@ void sdxi_cxt_push_doorbell(struct sdxi_cxt *cxt, u64 index)
 {
 	enum cxt_sts_state state = sdxi_cxt_sts_state(cxt->sq->cxt_sts);
 
-	/*
-	 * To do: cache doorbell values as they're written to
-	 * eliminate redundant doorbell writes.
-	 */
-
-	/* Ensure write index is visible. */
+	/* Ensure preceding write index increment is visible. */
 	dma_wmb();
 	sdxi_dbg(cxt->sdxi, "Ringing context %u (state = %s) doorbell: %llu\n",
 		 cxt->id, cxt_sts_state_str(state), index);
