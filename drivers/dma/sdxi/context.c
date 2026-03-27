@@ -23,6 +23,7 @@
 
 #include "context.h"
 #include "hw.h"
+#include "ring.h"
 #include "sdxi.h"
 #include "submission.h"
 
@@ -56,6 +57,7 @@ static void sdxi_free_cxt(struct sdxi_cxt *cxt)
 				  cxt->akey_table, cxt->akey_table_dma);
 	if (cxt->sq)
 		sdxi_sq_free(sdxi, cxt->sq);
+ 	kfree(cxt->ring_state);
 	kfree(cxt);
 }
 
@@ -72,6 +74,10 @@ static struct sdxi_cxt *sdxi_alloc_cxt(struct sdxi_dev *sdxi)
 
 	cxt->sdxi = sdxi;
 
+ 	cxt->ring_state = kzalloc_obj(*cxt->ring_state, GFP_KERNEL);
+ 	if (!cxt->ring_state)
+ 		return NULL;
+ 
 	cxt->sq = sdxi_sq_alloc(sdxi, DEFAULT_DESC_RING_ENTRIES);
 	if (!cxt->sq)
 		return NULL;
@@ -287,6 +293,7 @@ int sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
 	sq->cxt_sts.state = FIELD_PREP(SDXI_CXT_STS_STATE, CXTV_RUN);
 	cxt->id = SDXI_ADMIN_CXT_ID;
 	cxt->db = sdxi->dbs + cxt->id * sdxi->db_stride;
+	sdxi_ring_state_init(cxt->ring_state, sq);
 
 	err = sdxi_publish_cxt(cxt);
 	if (err)
@@ -368,6 +375,8 @@ struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi)
 	sdxi_cxt_id_assign(cxt, &id);
 
 	cxt->db = sdxi->dbs + cxt->id * sdxi->db_stride;
+
+	sdxi_ring_state_init(cxt->ring_state, cxt->sq);
 
 	if (sdxi_publish_cxt(cxt))
 		return NULL;
