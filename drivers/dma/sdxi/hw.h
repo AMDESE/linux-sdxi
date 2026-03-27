@@ -108,11 +108,6 @@ enum cxt_sts_state {
 	CXTV_ERR_FN   = 0xf,
 };
 
-static inline enum cxt_sts_state sdxi_cxt_sts_state(const struct sdxi_cxt_sts *sts)
-{
-	return FIELD_GET(SDXI_CXT_STS_STATE, READ_ONCE(sts->state));
-}
-
 /* SDXI 1.0 Table 3-7: AKey Table Entry (AKEY_ENT) */
 struct sdxi_akey_ent {
 	__le16 intr_num;
