@@ -49,10 +49,10 @@ struct sdxi_sq {
 };
 
 struct sdxi_cxt {
-	struct sdxi_dev *sdxi;	/* owner */
+	struct sdxi_dev *sdxi;
 	unsigned int id;
 
-	__le64 __iomem *db;		/* doorbell virt addr */
+	__le64 __iomem *db;
 
 	struct sdxi_cxt_ctl *cxt_ctl;
 	dma_addr_t cxt_ctl_dma;
