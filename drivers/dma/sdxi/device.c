@@ -295,17 +295,6 @@ static int sdxi_device_init(struct sdxi_dev *sdxi)
 	return 0;
 }
 
-static void sdxi_device_exit(struct sdxi_dev *sdxi)
-{
-	struct sdxi_cxt *cxt;
-	unsigned long index;
-
-	xa_for_each(&sdxi->client_cxts, index, cxt)
-		sdxi_cxt_exit(cxt);
-
-	sdxi_dev_stop(sdxi);
-}
-
 int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 {
 	struct sdxi_dev *sdxi;
@@ -331,9 +320,14 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 void sdxi_unregister(struct device *dev)
 {
 	struct sdxi_dev *sdxi = dev_get_drvdata(dev);
+	struct sdxi_cxt *cxt;
+	unsigned long index;
 
-	sdxi_device_exit(sdxi);
+	xa_for_each(&sdxi->client_cxts, index, cxt)
+		sdxi_cxt_exit(cxt);
 	xa_destroy(&sdxi->client_cxts);
+
 	ida_destroy(&sdxi->vectors);
 
+	sdxi_dev_stop(sdxi);
 }
