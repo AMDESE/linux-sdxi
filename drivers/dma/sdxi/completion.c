@@ -11,6 +11,7 @@
 
 #include "completion.h"
 #include "descriptor.h"
+#include "hw.h"
 
 struct sdxi_completion {
 	struct sdxi_dev *sdxi;
