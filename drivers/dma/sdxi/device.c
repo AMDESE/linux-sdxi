@@ -258,7 +258,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	 * admin context at this point, so the appropriate value for
 	 * the doorbell is 0.
 	 */
-	iowrite64(0, sdxi->admin_cxt->db);
+	sdxi_cxt_push_doorbell(sdxi->admin_cxt, 0);
 
 	return 0;
 }
