@@ -36,8 +36,6 @@ static inline u8 akey_table_order(const struct sdxi_akey_table *tbl)
 
 /* Submission Queue */
 struct sdxi_sq {
-	struct sdxi_cxt *cxt;		/* owner */
-
 	u32 ring_entries;
 	u32 ring_size;
 	struct sdxi_desc *desc_ring;
