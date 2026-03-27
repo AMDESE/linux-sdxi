@@ -298,41 +298,10 @@ static void sdxi_rescind_cxt(struct sdxi_cxt *cxt)
 	/* todo: need to send DSC_CXT_UPD to admin */
 }
 
-static const char *cxt_sts_state_str(enum cxt_sts_state state)
-{
-	static const char *const context_states[] = {
-		[CXTV_STOP_SW]  = "stopped (software)",
-		[CXTV_RUN]      = "running",
-		[CXTV_STOPG_SW] = "stopping (software)",
-		[CXTV_STOP_FN]  = "stopped (function)",
-		[CXTV_STOPG_FN] = "stopping (function)",
-		[CXTV_ERR_FN]   = "error",
-	};
-	const char *str = "unknown";
-
-	switch (state) {
-	case CXTV_STOP_SW:
-	case CXTV_RUN:
-	case CXTV_STOPG_SW:
-	case CXTV_STOP_FN:
-	case CXTV_STOPG_FN:
-	case CXTV_ERR_FN:
-		str = context_states[state];
-		break;
-	/* default: label deliberately omitted so -Wswitch will work. */
-	}
-
-	return str;
-}
-
 void sdxi_cxt_push_doorbell(struct sdxi_cxt *cxt, u64 index)
 {
-	enum cxt_sts_state state = sdxi_cxt_sts_state(cxt->sq->cxt_sts);
-
 	/* Ensure preceding write index increment is visible. */
 	dma_wmb();
-	sdxi_dbg(cxt->sdxi, "Ringing context %u (state = %s) doorbell: %llu\n",
-		 cxt->id, cxt_sts_state_str(state), index);
 	iowrite64(index, cxt->db);
 }
 
