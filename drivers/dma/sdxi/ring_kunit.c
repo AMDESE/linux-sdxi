@@ -2,7 +2,7 @@
 /*
  * SDXI descriptor ring management tests.
  *
- * Copyright (C) 2026 Advanced Micro Devices, Inc.
+ * Copyright Advanced Micro Devices, Inc.
  */
 #include <kunit/device.h>
 #include <kunit/test-bug.h>

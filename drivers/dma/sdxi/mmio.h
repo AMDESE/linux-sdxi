@@ -3,7 +3,7 @@
 /*
  * SDXI MMIO register offsets and layouts.
  *
- * Copyright (C) 2026 Advanced Micro Devices, Inc.
+ * Copyright Advanced Micro Devices, Inc.
  */
 
 #ifndef DMA_SDXI_MMIO_H

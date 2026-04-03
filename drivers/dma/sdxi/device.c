@@ -2,7 +2,7 @@
 /*
  * SDXI hardware device driver
  *
- * Copyright (C) 2026 Advanced Micro Devices, Inc.
+ * Copyright Advanced Micro Devices, Inc.
  */
 
 #include <linux/bitfield.h>

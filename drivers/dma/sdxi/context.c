@@ -2,7 +2,7 @@
 /*
  * SDXI context management
  *
- * Copyright (C) 2026 Advanced Micro Devices, Inc.
+ * Copyright Advanced Micro Devices, Inc.
  */
 
 #define pr_fmt(fmt)     "SDXI: " fmt
