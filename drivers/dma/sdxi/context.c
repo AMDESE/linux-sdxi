@@ -416,7 +416,7 @@ int sdxi_start_cxt(struct sdxi_cxt *cxt)
 
 	desc = sdxi_ring_resv_next(&resv);
 	sdxi_encode_cxt_start(desc, &(const struct sdxi_cxt_start) {
-			.range = sdxi_cxt_range(cxt->id),
+			.range = sdxi_cxt_range_single(cxt->id),
 		});
 	sdxi_completion_attach(desc, sc);
 	sdxi_desc_make_valid(desc);
@@ -450,11 +450,11 @@ void sdxi_stop_cxt(struct sdxi_cxt *cxt)
 	sync = sdxi_ring_resv_next(&resv);
 
 	sdxi_encode_cxt_stop(stop, &(const struct sdxi_cxt_stop) {
-			.range = sdxi_cxt_range(cxt->id),
+			.range = sdxi_cxt_range_single(cxt->id),
 		});
 	sdxi_encode_sync(sync, &(const struct sdxi_sync) {
 			.filter = SDXI_SYNC_FLT_STOP,
-			.range = sdxi_cxt_range(cxt->id),
+			.range = sdxi_cxt_range_single(cxt->id),
 		});
 	sdxi_completion_attach(sync, sc);
 	sdxi_desc_make_valid(stop);

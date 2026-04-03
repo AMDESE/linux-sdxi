@@ -363,7 +363,7 @@ static void cxt_start(struct kunit *t)
 {
 	struct unpacked_desc unpacked;
 	struct sdxi_cxt_start start = {
-		.range = sdxi_cxt_range(2),
+		.range = sdxi_cxt_range_single(2),
 	};
 	struct sdxi_desc desc;
 
@@ -400,7 +400,7 @@ static void cxt_stop(struct kunit *t)
 {
 	struct unpacked_desc unpacked;
 	struct sdxi_cxt_stop stop = {
-		.range = sdxi_cxt_range(2),
+		.range = sdxi_cxt_range_single(2),
 	};
 	struct sdxi_desc desc;
 

@@ -77,7 +77,7 @@ struct sdxi_cxt_range {
 	u16 cxt_end;
 };
 
-static inline struct sdxi_cxt_range __sdxi_cxt_range(u16 a, u16 b)
+static inline struct sdxi_cxt_range sdxi_cxt_range(u16 a, u16 b)
 {
 	return (struct sdxi_cxt_range) {
 		.cxt_start = min(a, b),
@@ -85,19 +85,10 @@ static inline struct sdxi_cxt_range __sdxi_cxt_range(u16 a, u16 b)
 	};
 }
 
-#define sdxi_cxt_range_1(_id)			\
-	({					\
-		u16 id = (_id);			\
-		__sdxi_cxt_range(id, id);	\
-	})
-
-#define sdxi_cxt_range_2(_id1, _id2) __sdxi_cxt_range(_id1, _id2)
-
-#define _sdxi_cxt_range(_1, _2, _fn, ...) _fn
-
-#define sdxi_cxt_range(...)						\
-	_sdxi_cxt_range(__VA_ARGS__,					\
-			sdxi_cxt_range_2, sdxi_cxt_range_1)(__VA_ARGS__)
+static inline struct sdxi_cxt_range sdxi_cxt_range_single(u16 nr)
+{
+	return sdxi_cxt_range(nr, nr);
+}
 
 void sdxi_serialize_nop(struct sdxi_desc *desc);
 
