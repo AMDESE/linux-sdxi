@@ -364,6 +364,67 @@ int sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
 	return devm_add_action_or_reset(sdxi->dev, free_admin_cxt, sdxi);
 }
 
+int sdxi_start_cxt(struct sdxi_cxt *cxt)
+{
+	struct sdxi_cxt *adm = to_admin_cxt(cxt);
+	struct sdxi_ring_resv resv;
+	struct sdxi_completion comp;
+	struct sdxi_slot start;
+	int err;
+
+	might_sleep();
+
+	/* Administrative context activation is controlled by the function state. */
+	if (WARN_ON(adm == cxt))
+		return -EINVAL;
+
+	err = sdxi_cxt_reserve(adm, 1, &resv, &comp);
+	if (err)
+		return err;
+
+	start = sdxi_ring_resv_slot(&resv, 0);
+	sdxi_encode_cxt_start(sdxi_slot_desc(start), &(const struct sdxi_cxt_start) {
+			.range = sdxi_cxt_range_single(cxt->id),
+		});
+	sdxi_cxt_submit(adm, start, &comp, SDXI_CXT_SUBMIT_KICK);
+
+	return sdxi_cxt_poll_completion(adm, &comp);
+}
+
+void sdxi_stop_cxt(struct sdxi_cxt *cxt)
+{
+	struct sdxi_cxt *adm = to_admin_cxt(cxt);
+	struct sdxi_slot stop, sync;
+	struct sdxi_ring_resv resv;
+	struct sdxi_completion comp;
+	int err;
+
+	might_sleep();
+
+	/* Administrative context stopping is controlled by the function state. */
+	if (WARN_ON(adm == cxt))
+		return;
+
+	err = sdxi_cxt_reserve(adm, 2, &resv, &comp);
+	if (WARN_ON_ONCE(err))
+		return;
+
+	stop = sdxi_ring_resv_slot(&resv, 0);
+	sync = sdxi_ring_resv_slot(&resv, 1);
+
+	sdxi_encode_cxt_stop(sdxi_slot_desc(stop), &(const struct sdxi_cxt_stop) {
+			.range = sdxi_cxt_range_single(cxt->id),
+		});
+	sdxi_encode_sync(sdxi_slot_desc(sync), &(const struct sdxi_sync) {
+			.filter = SDXI_SYNC_FLT_STOP,
+			.range = sdxi_cxt_range_single(cxt->id),
+		});
+	sdxi_cxt_submit(adm, stop, NULL, 0);
+	sdxi_cxt_submit(adm, sync, &comp, SDXI_CXT_SUBMIT_KICK);
+
+	WARN_ON(sdxi_cxt_poll_completion(adm, &comp));
+}
+
 /*
  * Temporary owner for context id until it can be assigned to a
  * context object; enables scope-based cleanup.
