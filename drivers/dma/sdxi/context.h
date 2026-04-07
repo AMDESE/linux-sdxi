@@ -60,6 +60,9 @@ struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi);
 int sdxi_cxt_exit(struct sdxi_cxt *cxt);
 void sdxi_client_cxts_exit(struct sdxi_dev *sdxi);
 
+int sdxi_start_cxt(struct sdxi_cxt *cxt);
+void sdxi_stop_cxt(struct sdxi_cxt *cxt);
+
 enum sdxi_submit_flags {
 	SDXI_CXT_SUBMIT_KICK  = BIT(0),
 	SDXI_CXT_SUBMIT_FENCE = BIT(1),
