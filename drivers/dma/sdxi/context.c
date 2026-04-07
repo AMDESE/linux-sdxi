@@ -406,6 +406,9 @@ int sdxi_start_cxt(struct sdxi_cxt *cxt)
 	struct sdxi_completion *sc __free(sdxi_completion) =
 		sdxi_completion_alloc(cxt->sdxi);
 
+	if (!sc)
+		return -ENOMEM;
+
 	/* This is not how to start the admin context. */
 	if (WARN_ON(adm == cxt))
 		return -EINVAL;
@@ -437,6 +440,9 @@ void sdxi_stop_cxt(struct sdxi_cxt *cxt)
 
 	struct sdxi_completion *sc __free(sdxi_completion) =
 		sdxi_completion_alloc(cxt->sdxi);
+
+	if (!sc)
+		return;
 
 	/* This is not how to stop the admin context. */
 	if (WARN_ON(adm == cxt))
