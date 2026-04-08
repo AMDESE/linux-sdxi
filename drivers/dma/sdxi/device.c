@@ -10,6 +10,7 @@
 #include <linux/device.h>
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
+#include <linux/idr.h>
 #include <linux/log2.h>
 #include <linux/slab.h>
 #include <linux/xarray.h>
