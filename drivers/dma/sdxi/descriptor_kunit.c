@@ -12,9 +12,9 @@
  * SDXI_DSC_VL in the test code makes it possible for the tests to
  * detect any mistakes in defining them.
  *
- * Note that the checks in unpack_fields() are quite time-consuming;
- * add '#define SKIP_PACKING_CHECKS' if that's too annoying when
- * working on this code.
+ * Note that the checks in unpack_fields() can be quite time-consuming
+ * at build time. Uncomment '#define SKIP_PACKING_CHECKS' below if
+ * that's too annoying when working on this code.
  */
 #include <kunit/device.h>
 #include <kunit/test-bug.h>
@@ -28,7 +28,7 @@
 
 #include "descriptor.h"
 
-#define SKIP_PACKING_CHECKS
+/* #define SKIP_PACKING_CHECKS */
 
 MODULE_IMPORT_NS("EXPORTED_FOR_KUNIT_TESTING");
 
