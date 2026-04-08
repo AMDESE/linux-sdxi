@@ -125,9 +125,16 @@ static_assert(sizeof(struct sdxi_akey_ent) == 16);
 struct sdxi_cst_blk {
 	__le64 signal;
 	__le32 flags;
+#define SDXI_CST_BLK_ER BIT(31)
 	__u8 rsvd_0[20];
 } __packed __aligned(32);
 static_assert(sizeof(struct sdxi_cst_blk) == 32);
+
+/* SDXI 1.0 4.4.2 Completion-Status Modes */
+enum sdxi_cst_blk_signal {
+	SDXI_CST_BLK_SIGNAL_TERMINAL = 0,
+	SDXI_CST_BLK_SIGNAL_INIT     = 1,
+};
 
 struct sdxi_desc {
 	union {

@@ -45,6 +45,7 @@ struct sdxi_cxt {
 	dma_addr_t akey_table_dma;
 
 	struct sdxi_sq *sq;
+	struct sdxi_cq *cq;
 
 	struct sdxi_ring_state *ring_state;
 };
