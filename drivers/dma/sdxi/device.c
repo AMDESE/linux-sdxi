@@ -11,6 +11,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
 #include <linux/export.h>
+#include <linux/idr.h>
 #include <linux/iopoll.h>
 #include <linux/jiffies.h>
 #include <linux/log2.h>
@@ -433,6 +434,7 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 
 	sdxi->dev = dev;
 	sdxi->bus_ops = ops;
+	ida_init(&sdxi->vectors);
 	xa_init_flags(&sdxi->client_cxts, XA_FLAGS_ALLOC1);
 	dev_set_drvdata(dev, sdxi);
 
@@ -455,6 +457,7 @@ void sdxi_unregister(struct device *dev)
 	/* Stop/reset is best effort if the hardware cannot be quiesced. */
 	sdxi_dev_stop(sdxi);
 	sdxi_client_cxts_exit(sdxi);
+	ida_destroy(&sdxi->vectors);
 }
 EXPORT_SYMBOL_NS_GPL(sdxi_unregister, "SDXI");
 
