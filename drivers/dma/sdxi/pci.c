@@ -12,7 +12,7 @@
 #include <linux/dev_printk.h>
 #include <linux/dma-direction.h>
 #include <linux/dma-mapping.h>
-#include <linux/errno.h>
+#include <linux/err.h>
 #include <linux/io.h>
 #include <linux/iomap.h>
 #include <linux/math64.h>
