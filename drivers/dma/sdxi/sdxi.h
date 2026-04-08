@@ -66,9 +66,6 @@ struct sdxi_bus_ops {
 	int (*get_irq)(struct sdxi_dev *sdxi, unsigned int index);
 };
 
-struct device;
-struct dma_pool;
-
 struct sdxi_dev {
 	struct device *dev;
 	void __iomem *ctrl_regs;	/* virt addr of ctrl registers */
