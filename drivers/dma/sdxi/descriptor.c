@@ -46,7 +46,6 @@ void sdxi_serialize_nop(struct sdxi_desc *desc)
 		      FIELD_PREP(SDXI_DSC_TYPE, SDXI_DSC_OP_TYPE_DMAB));
 	u64 csb_ptr = FIELD_PREP(SDXI_DSC_NP, 1);
 
-
 	*desc = (typeof(*desc)) {
 		.nop = (typeof(desc->nop)) {
 			.opcode = cpu_to_le32(opcode),
@@ -67,10 +66,10 @@ int sdxi_encode_copy(struct sdxi_desc *desc, const struct sdxi_copy *params)
 	if (err)
 		return err;
 	/*
-	 * Reject overlapping src and dst. Quoting "Memory Consistency
-	 * Model": "Software shall not ... overlap the source buffer,
-	 * destination buffer, Atomic Return Data, or completion
-	 * status block."
+	 * Reject overlapping src and dst. "Software ... shall not
+	 * overlap the source buffer, destination buffer, Atomic
+	 * Return Data, or completion status block." - SDXI 1.0 5.6
+	 * Memory Consistency Model
 	 */
 	if (range_overlaps(&(const struct range) {
 				   .start = params->src,
