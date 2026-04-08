@@ -22,6 +22,7 @@
 #include <asm/barrier.h>
 #include <asm/rwonce.h>
 
+#include "completion.h"
 #include "context.h"
 #include "hw.h"
 #include "ring.h"
@@ -56,6 +57,8 @@ static void sdxi_free_cxt(struct sdxi_cxt *cxt)
 	if (cxt->akey_table)
 		dma_free_coherent(sdxi->dev, sizeof(*cxt->akey_table),
 				  cxt->akey_table, cxt->akey_table_dma);
+	if (cxt->cq)
+		sdxi_cq_free(sdxi, cxt->cq);
 	if (cxt->sq)
 		sdxi_sq_free(sdxi, cxt->sq);
 	ida_destroy(&cxt->akey_ida);
@@ -83,6 +86,10 @@ static struct sdxi_cxt *sdxi_alloc_cxt(struct sdxi_dev *sdxi)
  
 	cxt->sq = sdxi_sq_alloc(sdxi, DEFAULT_DESC_RING_ENTRIES);
 	if (!cxt->sq)
+		return NULL;
+
+	cxt->cq = sdxi_cq_alloc(sdxi, DEFAULT_DESC_RING_ENTRIES);
+	if (!cxt->cq)
 		return NULL;
 
 	cxt->akey_table = dma_alloc_coherent(dev, sizeof(*cxt->akey_table),
