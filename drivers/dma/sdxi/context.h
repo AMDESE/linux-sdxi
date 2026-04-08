@@ -16,6 +16,9 @@
 #include "sdxi.h"
 #include "submission.h"
 
+struct sdxi_completion;
+struct sdxi_cst_pool;
+
 /* Use a 4 KiB AKey table, the minimum architectural size. */
 struct sdxi_akey_table {
 	struct sdxi_akey_ent entry[SZ_4K / sizeof(struct sdxi_akey_ent)];
@@ -40,6 +43,7 @@ struct sdxi_cxt {
 	dma_addr_t akey_table_dma;
 
 	struct sdxi_sq *sq;
+	struct sdxi_cst_pool *cst_pool;
 
 	struct sdxi_ring_state *ring_state;
 };
