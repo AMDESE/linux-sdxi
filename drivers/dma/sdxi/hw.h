@@ -21,10 +21,8 @@
 #ifndef DMA_SDXI_HW_H
 #define DMA_SDXI_HW_H
 
-#include <linux/bitfield.h>
 #include <linux/bits.h>
 #include <linux/build_bug.h>
-#include <linux/log2.h>
 #include <linux/stddef.h>
 #include <linux/types.h>
 #include <asm/byteorder.h>
@@ -113,12 +111,9 @@ struct sdxi_akey_ent {
 	__le16 intr_num;
 #define SDXI_AKEY_ENT_VL BIT(0)
 #define SDXI_AKEY_ENT_IV BIT(1)
-#define SDXI_AKEY_ENT_PV BIT(2)
 #define SDXI_AKEY_ENT_INTR_NUM GENMASK(14, 4)
 	__le16 tgt_sfunc;
 	__le32 pasid;
-#define SDXI_AKEY_ENT_PASID GENMASK(19, 0)
-#define SDXI_AKEY_ENT_PR    BIT(29)
 	__le16 stag;
 	__u8   rsvd_0[2];
 	__le16 rkey;
@@ -151,10 +146,6 @@ struct sdxi_desc {
 #define SDXI_DSC_VL  BIT(0)
 #define SDXI_DSC_SE  BIT(1)
 #define SDXI_DSC_FE  BIT(2)
-#define SDXI_DSC_CH  BIT(3)
-#define SDXI_DSC_CSR BIT(4)
-#define SDXI_DSC_RB  BIT(5)
-#define SDXI_DSC_FLAGS   GENMASK(5, 0)
 #define SDXI_DSC_SUBTYPE GENMASK(15, 8)
 #define SDXI_DSC_TYPE    GENMASK(26, 16)
 
@@ -218,9 +209,6 @@ struct sdxi_desc {
 			__le16 cxt_end;
 			__u8 rsvd_1[44];
 		);
-/* For use with cxt_stop.vflags */
-#define SDXI_DSC_CXT_STOP_HS BIT(6)
-#define SDXI_DSC_CXT_STOP_VF BIT(8)
 
 		/* SDXI 1.0 Table 6-22: DSC_SYNC Descriptor Format */
 		define_sdxi_dsc(sdxi_dsc_sync, sync,
@@ -259,7 +247,6 @@ enum sdxi_dsc_subtype {
 
 	/* Administrative */
 	SDXI_DSC_OP_SUBTYPE_CXT_START_NM = 0x03,
-	SDXI_DSC_OP_SUBTYPE_CXT_START_RS = 0x08,
 	SDXI_DSC_OP_SUBTYPE_CXT_STOP     = 0x04,
 	SDXI_DSC_OP_SUBTYPE_SYNC         = 0x06,
 };
