@@ -7,14 +7,10 @@
 #define DMA_SDXI_CONTEXT_H
 
 #include <linux/array_size.h>
-#include <linux/build_bug.h>
 #include <linux/dma-mapping.h>
 #include <linux/idr.h>
-#include <linux/io-64-nonatomic-lo-hi.h>
-#include <linux/sizes.h>
 #include <linux/string.h>
 #include <linux/types.h>
-#include <asm/barrier.h>
 
 #include "hw.h"
 #include "sdxi.h"
