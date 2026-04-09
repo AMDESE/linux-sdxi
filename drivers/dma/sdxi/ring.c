@@ -49,9 +49,6 @@ void sdxi_ring_state_init(struct sdxi_ring_state *rs, const __le64 *read_index,
 	};
 	spin_lock_init(&rs->lock);
 	init_waitqueue_head(&rs->wqh);
-
-	pr_debug("initialized ring state at %p with %u entries\n",
-		 rs, rs->entries);
 }
 EXPORT_SYMBOL_IF_KUNIT(sdxi_ring_state_init);
 
