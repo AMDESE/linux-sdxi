@@ -28,8 +28,7 @@ static inline void sdxi_desc_vl_expect(const struct sdxi_desc *desc, bool expect
 	WARN_RATELIMIT(vl != expected, "expected vl=%u but got %u\n", expected, vl);
 }
 
-static inline void sdxi_desc_set_csb(struct sdxi_desc *desc,
-				     dma_addr_t addr)
+static inline void sdxi_desc_set_csb(struct sdxi_desc *desc, dma_addr_t addr)
 {
 	sdxi_desc_vl_expect(desc, 0);
 	desc->csb_ptr = cpu_to_le64(FIELD_PREP(SDXI_DSC_CSB_PTR, addr >> 5));
