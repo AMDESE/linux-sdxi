@@ -6,18 +6,12 @@
  */
 
 #include <linux/bitfield.h>
-#include <linux/bits.h>
-#include <linux/delay.h>
-#include <linux/device.h>
 #include <linux/dev_printk.h>
-#include <linux/dma-direction.h>
 #include <linux/dma-mapping.h>
 #include <linux/err.h>
 #include <linux/io.h>
 #include <linux/iomap.h>
-#include <linux/math64.h>
 #include <linux/module.h>
-#include <linux/pci-ats.h>
 #include <linux/pci.h>
 
 #include "mmio.h"
