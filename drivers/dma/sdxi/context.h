@@ -88,7 +88,7 @@ void sdxi_cxt_push_doorbell(struct sdxi_cxt *cxt, u64 index);
 
 static inline struct sdxi_akey_ent *sdxi_alloc_akey(struct sdxi_cxt *cxt)
 {
-	unsigned int max = ARRAY_SIZE(cxt->akey_table->entry);
+	unsigned int max = ARRAY_SIZE(cxt->akey_table->entry) - 1;
 	int idx = ida_alloc_max(&cxt->akey_ida, max, GFP_KERNEL);
 
 	return idx < 0 ? NULL : &cxt->akey_table->entry[idx];
