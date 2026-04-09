@@ -15,6 +15,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
 #include <linux/errno.h>
+#include <linux/idr.h>
 #include <linux/iommu.h>
 #include <linux/slab.h>
 #include <linux/types.h>
@@ -57,7 +58,8 @@ static void sdxi_free_cxt(struct sdxi_cxt *cxt)
 				  cxt->akey_table, cxt->akey_table_dma);
 	if (cxt->sq)
 		sdxi_sq_free(sdxi, cxt->sq);
- 	kfree(cxt->ring_state);
+	ida_destroy(&cxt->akey_ida);
+	kfree(cxt->ring_state);
 	kfree(cxt);
 }
 
@@ -73,6 +75,7 @@ static struct sdxi_cxt *sdxi_alloc_cxt(struct sdxi_dev *sdxi)
 		return NULL;
 
 	cxt->sdxi = sdxi;
+	ida_init(&cxt->akey_ida);
 
  	cxt->ring_state = kzalloc_obj(*cxt->ring_state, GFP_KERNEL);
  	if (!cxt->ring_state)
