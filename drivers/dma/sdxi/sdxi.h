@@ -11,15 +11,11 @@
 #include <linux/bug.h>
 #include <linux/compiler_types.h>
 #include <linux/dev_printk.h>
-#include <linux/dma-mapping.h>
-#include <linux/dmaengine.h>
 #include <linux/idr.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
-#include <linux/module.h>
 #include <linux/types.h>
 #include <linux/xarray.h>
 
-#include "hw.h"
 #include "mmio.h"
 
 #define SDXI_DRV_DESC		"SDXI driver"

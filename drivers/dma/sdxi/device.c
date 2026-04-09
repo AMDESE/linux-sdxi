@@ -14,7 +14,6 @@
 #include <linux/log2.h>
 #include <linux/slab.h>
 #include <linux/xarray.h>
-#include <asm/mmu.h>
 
 #include "context.h"
 #include "dma.h"
