@@ -6,15 +6,10 @@
  */
 
 #include <kunit/visibility.h>
-#include <linux/align.h>
 #include <linux/bitfield.h>
-#include <linux/bitmap.h>
 #include <linux/bug.h>
-#include <linux/dma-mapping.h>
-#include <linux/log2.h>
 #include <linux/range.h>
 #include <linux/sizes.h>
-#include <linux/string.h>
 #include <linux/types.h>
 #include <asm/byteorder.h>
 

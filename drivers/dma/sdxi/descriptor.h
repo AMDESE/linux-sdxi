@@ -9,13 +9,9 @@
  */
 
 #include <linux/bitfield.h>
-#include <linux/bits.h>
-#include <linux/errno.h>
 #include <linux/kconfig.h>
 #include <linux/minmax.h>
 #include <linux/ratelimit.h>
-#include <linux/sizes.h>
-#include <linux/stddef.h>
 #include <linux/types.h>
 #include <asm/byteorder.h>
 
