@@ -74,7 +74,7 @@ struct sdxi_dma_dev {
 struct sdxi_dma_desc {
 	struct virt_dma_desc vdesc;
 	struct sdxi_ring_resv resv;
-	struct sdxi_completion *completion; // Should this be optional? Maybe there should always be one completion per txd.
+	struct sdxi_completion *completion;
 };
 
 static struct sdxi_dma_chan *to_sdxi_dma_chan(const struct dma_chan *dma_chan)
