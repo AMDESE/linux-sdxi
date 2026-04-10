@@ -70,7 +70,7 @@ struct sdxi_dev {
 	/* hardware capabilities (from cap0 & cap1) */
 	u32 db_stride;			/* doorbell stride in bytes */
 	u16 max_cxtid;			/* Maximum context ID allowed. */
-	u32 op_grp_cap;			/* supported operatation group cap */
+	u32 op_grp_cap;			/* supported operation group cap */
 
 	struct sdxi_cxt_L2_table *L2_table;
 	dma_addr_t L2_dma;
