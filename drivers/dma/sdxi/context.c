@@ -101,7 +101,7 @@ static struct sdxi_cxt *sdxi_alloc_cxt(struct sdxi_dev *sdxi)
 
 	cxt->cxt_ctl = dma_pool_zalloc(sdxi->cxt_ctl_pool, GFP_KERNEL,
 				       &cxt->cxt_ctl_dma);
-	if (!cxt->cxt_ctl_dma)
+	if (!cxt->cxt_ctl)
 		return NULL;
 
 	sq = cxt->sq;
