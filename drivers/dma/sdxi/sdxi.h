@@ -98,8 +98,8 @@ struct sdxi_dev {
  */
 static inline int sdxi_alloc_vector(struct sdxi_dev *sdxi)
 {
-	return ida_alloc_max(&sdxi->vectors, sdxi->nr_vectors - 1,
-			     GFP_KERNEL);
+	return ida_alloc_range(&sdxi->vectors, SDXI_MIN_VECTORS,
+			       sdxi->nr_vectors - 1, GFP_KERNEL);
 }
 
 /**
