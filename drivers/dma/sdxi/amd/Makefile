@@ -2,3 +2,5 @@
 
 obj-$(CONFIG_SDXI_AMD_QOS) += sdxi-amd-qos.o
 sdxi-amd-qos-objs := qos.o
+
+obj-$(CONFIG_SDXI_AMD_QOS_KUNIT_TEST) += qos_kunit.o
