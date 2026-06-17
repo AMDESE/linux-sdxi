@@ -590,3 +590,177 @@ out_free:
 			  buf, dma);
 	return err;
 }
+
+static int sdxi_amd_qos_prevalidate_poolupd(struct sdxi_dev *sdxi,
+					    struct sdxi_cxt *adm,
+					    u16 opcode_type,
+					    unsigned int timeout_ms,
+					    const struct sdxi_amd_qos_cap_info *cap,
+					    const struct sdxi_amd_qos_poolupd_req *req)
+{
+	struct sdxi_amd_qos_dev_info dev_info;
+	struct sdxi_amd_qos_pool_info pool_info;
+	u32 new_minbw;
+	u32 total_minbw;
+	size_t bytes;
+	u8 *bitmap;
+	bool pool_known;
+	int err;
+
+	err = sdxi_amd_qos_validate_poolupd_req(req, cap->max_pools,
+						cap->granularity_bw);
+	if (err)
+		return err;
+
+	err = sdxi_amd_qos_get_dev_info(sdxi, adm, opcode_type, timeout_ms,
+					&dev_info);
+	if (err)
+		return err;
+
+	bytes = (size_t)(cap->max_pools + 7U) / 8U;
+	bitmap = kcalloc(bytes, sizeof(*bitmap), GFP_KERNEL);
+	if (!bitmap)
+		return -ENOMEM;
+
+	err = sdxi_amd_qos_get_active_pools(sdxi, adm, opcode_type,
+					    timeout_ms, cap->max_pools,
+					    bitmap);
+	if (err) {
+		kfree(bitmap);
+		return err;
+	}
+
+	pool_known = !req->pool_num ||
+		     sdxi_amd_qos_pool_active(bitmap, req->pool_num);
+
+	switch (req->pool_operation) {
+	case SDXI_AMD_QOS_POOL_OP_CREATE:
+		if (sdxi_amd_qos_pool_active(bitmap, req->pool_num))
+			err = -EEXIST;
+		kfree(bitmap);
+		if (err)
+			return err;
+
+		new_minbw = sdxi_amd_qos_align_bw(req->pool_minbw,
+						  cap->granularity_bw);
+		if (dev_info.total_allocated_bw > dev_info.device_maxbw)
+			return -EIO;
+		if (new_minbw > dev_info.device_maxbw - dev_info.total_allocated_bw)
+			return -EINVAL;
+		return 0;
+	case SDXI_AMD_QOS_POOL_OP_UPDATE:
+		kfree(bitmap);
+		if (!pool_known)
+			return -ENOENT;
+		err = sdxi_amd_qos_get_pool_info(sdxi, adm, opcode_type,
+						 req->pool_num, timeout_ms,
+						 &pool_info);
+		if (err)
+			return err;
+
+		if (pool_info.pool_minbw > dev_info.total_allocated_bw)
+			return -EIO;
+		if (dev_info.total_allocated_bw > dev_info.device_maxbw)
+			return -EIO;
+
+		new_minbw = sdxi_amd_qos_align_bw(req->pool_minbw,
+						  cap->granularity_bw);
+		total_minbw = dev_info.total_allocated_bw - pool_info.pool_minbw;
+		if (new_minbw > dev_info.device_maxbw - total_minbw)
+			return -EINVAL;
+		return 0;
+	case SDXI_AMD_QOS_POOL_OP_DESTROY:
+		kfree(bitmap);
+		if (!pool_known)
+			return -ENOENT;
+		err = sdxi_amd_qos_get_pool_info(sdxi, adm, opcode_type,
+						 req->pool_num, timeout_ms,
+						 &pool_info);
+		if (err)
+			return err;
+
+		return 0;
+	default:
+		kfree(bitmap);
+		return -EINVAL;
+	}
+}
+
+static int sdxi_amd_qos_prevalidate_fnupd(struct sdxi_dev *sdxi,
+					  struct sdxi_cxt *adm,
+					  u16 opcode_type,
+					  unsigned int timeout_ms,
+					  const struct sdxi_amd_qos_cap_info *cap,
+					  const struct sdxi_amd_qos_fnupd_req *req)
+{
+	size_t bytes;
+	u8 *bitmap;
+	int err;
+
+	err = sdxi_amd_qos_validate_fnupd_req(req, cap->max_pools,
+					      sdxi_amd_qos_max_vfs(sdxi),
+					      sdxi->max_cxts,
+					      cap->feature_flags);
+	if (err)
+		return err;
+
+	if (!req->pool_num)
+		return 0;
+
+	bytes = (size_t)(cap->max_pools + 7U) / 8U;
+	bitmap = kcalloc(bytes, sizeof(*bitmap), GFP_KERNEL);
+	if (!bitmap)
+		return -ENOMEM;
+
+	err = sdxi_amd_qos_get_active_pools(sdxi, adm, opcode_type, timeout_ms,
+					    cap->max_pools, bitmap);
+	if (!err && !sdxi_amd_qos_pool_active(bitmap, req->pool_num))
+		err = -ENOENT;
+	kfree(bitmap);
+	if (err)
+		return err;
+
+	return 0;
+}
+
+static int sdxi_amd_qos_prevalidate_tel(struct sdxi_dev *sdxi,
+					struct sdxi_cxt *adm,
+					u16 opcode_type,
+					unsigned int timeout_ms,
+					const struct sdxi_amd_qos_cap_info *cap,
+					const struct sdxi_amd_qos_tel_req *req)
+{
+	size_t bytes;
+	u8 *bitmap;
+	int err;
+
+	err = sdxi_amd_qos_validate_tel_req(req, cap->max_pools,
+					    sdxi_amd_qos_max_vfs(sdxi),
+					    sdxi->max_cxts,
+					    cap->feature_flags);
+	if (err)
+		return err;
+
+	switch (req->query_type) {
+	case SDXI_AMD_QOS_TEL_QTYPE_POOL_CONFIG:
+	case SDXI_AMD_QOS_TEL_QTYPE_POOL_REPORT:
+	case SDXI_AMD_QOS_TEL_QTYPE_POOL_VARIANCE:
+		if (!req->pool_num)
+			return 0;
+
+		bytes = (size_t)(cap->max_pools + 7U) / 8U;
+		bitmap = kcalloc(bytes, sizeof(*bitmap), GFP_KERNEL);
+		if (!bitmap)
+			return -ENOMEM;
+
+		err = sdxi_amd_qos_get_active_pools(sdxi, adm, opcode_type,
+						    timeout_ms, cap->max_pools,
+						    bitmap);
+		if (!err && !sdxi_amd_qos_pool_active(bitmap, req->pool_num))
+			err = -ENOENT;
+		kfree(bitmap);
+		return err;
+	default:
+		return 0;
+	}
+}
