@@ -25287,6 +25287,9 @@ M:	Wei Huang <wei.huang2@amd.com>
 L:	dmaengine@vger.kernel.org
 S:	Supported
 F:	drivers/dma/sdxi/
+F:	drivers/dma/sdxi/amd/
+F:	include/uapi/linux/sdxi.h
+F:	tools/testing/selftests/sdxi/
 
 SECO BOARDS CEC DRIVER
 M:	Ettore Chimenti <ek5.chimenti@gmail.com>
