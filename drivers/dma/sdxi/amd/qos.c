@@ -264,3 +264,329 @@ int sdxi_amd_qos_validate_tel_req(const struct sdxi_amd_qos_tel_req *req,
 	}
 }
 EXPORT_SYMBOL_IF_KUNIT(sdxi_amd_qos_validate_tel_req);
+
+static void sdxi_amd_qos_desc_init(struct sdxi_desc *desc, u16 opcode_type,
+				   u8 subtype)
+{
+	memset(desc, 0, sizeof(*desc));
+	desc->opcode = cpu_to_le32(FIELD_PREP(SDXI_DSC_SUBTYPE, subtype) |
+				   FIELD_PREP(SDXI_DSC_TYPE, opcode_type));
+	desc->csb_ptr = cpu_to_le64(FIELD_PREP(SDXI_DSC_NP, 1));
+}
+
+static int sdxi_amd_qos_target_scope(u16 pool_num, u16 flags, u16 vf_num,
+				     u32 *target_scope)
+{
+	u32 value;
+
+	if (pool_num > 0x0fff)
+		return -EINVAL;
+	if (flags & ~(SDXI_AMD_QOS_TARGET_F_CXT | SDXI_AMD_QOS_TARGET_F_VF))
+		return -EINVAL;
+	if (!(flags & SDXI_AMD_QOS_TARGET_F_VF) && vf_num)
+		return -EINVAL;
+
+	value = pool_num;
+	if (flags & SDXI_AMD_QOS_TARGET_F_CXT)
+		value |= BIT(12);
+	if (flags & SDXI_AMD_QOS_TARGET_F_VF)
+		value |= BIT(15);
+	value |= (u32)vf_num << 16;
+
+	*target_scope = value;
+	return 0;
+}
+
+static u16 sdxi_amd_qos_max_vfs(struct sdxi_dev *sdxi)
+{
+	struct pci_dev *pdev;
+	unsigned int totalvfs;
+
+	if (!sdxi || sdxi_fn_reports_vf(sdxi))
+		return 0;
+
+	pdev = to_pci_dev(sdxi_to_dev(sdxi));
+	totalvfs = pci_sriov_get_totalvfs(pdev);
+	if (totalvfs > U16_MAX)
+		return U16_MAX;
+
+	return (u16)totalvfs;
+}
+
+static bool sdxi_amd_qos_pool_active(const u8 *bitmap, u16 pool_num)
+{
+	if (!bitmap)
+		return false;
+
+	return bitmap[pool_num / 8] & BIT(pool_num % 8);
+}
+
+static int sdxi_amd_qos_get_cap_info(struct sdxi_dev *sdxi,
+				     struct sdxi_cxt *adm,
+				     u16 opcode_type,
+				     unsigned int timeout_ms,
+				     struct sdxi_amd_qos_cap_info *cap)
+{
+	struct sdxi_desc desc = {};
+	dma_addr_t dma;
+	u8 *buf;
+	int err;
+
+	if (!cap)
+		return -EINVAL;
+
+	err = sdxi_amd_qos_admin_ready(adm);
+	if (err)
+		return err;
+
+	buf = dma_alloc_coherent(sdxi_to_dev(sdxi), SDXI_AMD_QOS_CAP_BYTES, &dma,
+				 GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	memset(buf, 0, SDXI_AMD_QOS_CAP_BYTES);
+
+	if (!IS_ALIGNED(dma, SZ_4K)) {
+		err = -EIO;
+		goto out_free;
+	}
+
+	sdxi_amd_qos_desc_init(&desc, opcode_type,
+			       SDXI_AMD_QOS_DSC_SUBTYPE_CAP);
+
+	/* capability_ptr is descriptor bits[127:64], starting at byte offset 8. */
+	put_unaligned_le64(dma, &desc.generic.operation[4]);
+
+	err = sdxi_adm_submit_desc(adm, &desc, timeout_ms, NULL);
+	if (err)
+		goto out_free;
+
+	dma_rmb();
+	cap->feature_flags = get_unaligned_le16(buf + 2);
+	cap->device_maxbw_cap = get_unaligned_le32(buf + 4);
+	cap->max_pools = (u16)(get_unaligned_le32(buf + 8) & 0x0fff);
+	cap->granularity_bw = get_unaligned_le32(buf + 12);
+	if (!cap->max_pools)
+		err = -EIO;
+
+out_free:
+	dma_free_coherent(sdxi_to_dev(sdxi), SDXI_AMD_QOS_CAP_BYTES, buf, dma);
+	return err;
+}
+
+static int sdxi_amd_qos_get_dev_info(struct sdxi_dev *sdxi,
+				     struct sdxi_cxt *adm,
+				     u16 opcode_type,
+				     unsigned int timeout_ms,
+				     struct sdxi_amd_qos_dev_info *info)
+{
+	struct sdxi_desc desc = {};
+	dma_addr_t dma;
+	u8 *buf;
+	int err;
+
+	if (!info)
+		return -EINVAL;
+
+	err = sdxi_amd_qos_admin_ready(adm);
+	if (err)
+		return err;
+
+	buf = dma_alloc_coherent(sdxi_to_dev(sdxi), SDXI_AMD_QOS_TEL_FIXED_BYTES,
+				 &dma, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	memset(buf, 0, SDXI_AMD_QOS_TEL_FIXED_BYTES);
+
+	if (!IS_ALIGNED(dma, SZ_4K)) {
+		err = -EIO;
+		goto out_free_dev;
+	}
+
+	sdxi_amd_qos_desc_init(&desc, opcode_type,
+			       SDXI_AMD_QOS_DSC_SUBTYPE_TEL);
+	put_unaligned_le64(sdxi_amd_qos_query_selector(0,
+						       SDXI_AMD_QOS_TEL_QTYPE_DEVICE),
+			   &desc.generic.operation[4]);
+	put_unaligned_le64(dma, &desc.generic.operation[12]);
+
+	err = sdxi_adm_submit_desc(adm, &desc, timeout_ms, NULL);
+	if (err)
+		goto out_free_dev;
+
+	dma_rmb();
+	info->device_maxbw = get_unaligned_le32(buf + 4);
+	info->total_allocated_bw = get_unaligned_le32(buf + 12);
+
+out_free_dev:
+	dma_free_coherent(sdxi_to_dev(sdxi), SDXI_AMD_QOS_TEL_FIXED_BYTES,
+			  buf, dma);
+	return err;
+}
+
+static int sdxi_amd_qos_get_pool_info(struct sdxi_dev *sdxi,
+				      struct sdxi_cxt *adm,
+				      u16 opcode_type, u16 pool_num,
+				      unsigned int timeout_ms,
+				      struct sdxi_amd_qos_pool_info *info)
+{
+	struct sdxi_desc desc = {};
+	dma_addr_t dma;
+	u8 *buf;
+	u32 target_scope;
+	int err;
+
+	if (!info)
+		return -EINVAL;
+
+	err = sdxi_amd_qos_admin_ready(adm);
+	if (err)
+		return err;
+
+	buf = dma_alloc_coherent(sdxi_to_dev(sdxi), SDXI_AMD_QOS_TEL_FIXED_BYTES,
+				 &dma, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	memset(buf, 0, SDXI_AMD_QOS_TEL_FIXED_BYTES);
+
+	if (!IS_ALIGNED(dma, SZ_4K)) {
+		err = -EIO;
+		goto out_free_pool;
+	}
+
+	sdxi_amd_qos_desc_init(&desc, opcode_type,
+			       SDXI_AMD_QOS_DSC_SUBTYPE_TEL);
+	target_scope = FIELD_PREP(GENMASK(11, 0), pool_num);
+	put_unaligned_le32(target_scope, &desc.generic.operation[0]);
+	put_unaligned_le64(sdxi_amd_qos_query_selector(0,
+						       SDXI_AMD_QOS_TEL_QTYPE_POOL_CONFIG),
+			   &desc.generic.operation[4]);
+	put_unaligned_le64(dma, &desc.generic.operation[12]);
+
+	err = sdxi_adm_submit_desc(adm, &desc, timeout_ms, NULL);
+	if (err)
+		goto out_free_pool;
+
+	dma_rmb();
+	info->pool_minbw = get_unaligned_le32(buf + 8);
+	info->pool_maxbw = get_unaligned_le32(buf + 12);
+	info->assigned_functions = get_unaligned_le16(buf + 16);
+	info->assigned_contexts = get_unaligned_le16(buf + 18);
+
+out_free_pool:
+	dma_free_coherent(sdxi_to_dev(sdxi), SDXI_AMD_QOS_TEL_FIXED_BYTES,
+			  buf, dma);
+	return err;
+}
+
+static int sdxi_amd_qos_get_active_pools(struct sdxi_dev *sdxi,
+					 struct sdxi_cxt *adm,
+					 u16 opcode_type,
+					 unsigned int timeout_ms,
+					 u16 max_pools, u8 *bitmap)
+{
+	struct sdxi_desc desc = {};
+	dma_addr_t dma;
+	u8 *buf;
+	size_t bytes;
+	int err;
+
+	if (!bitmap || !max_pools)
+		return -EINVAL;
+
+	err = sdxi_amd_qos_admin_ready(adm);
+	if (err)
+		return err;
+
+	bytes = (size_t)(max_pools + 7U) / 8U;
+	buf = dma_alloc_coherent(sdxi_to_dev(sdxi), SDXI_AMD_QOS_TEL_HDR_BYTES + bytes,
+				 &dma, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	memset(buf, 0, SDXI_AMD_QOS_TEL_HDR_BYTES + bytes);
+
+	if (!IS_ALIGNED(dma, SZ_4K)) {
+		err = -EIO;
+		goto out_free_active;
+	}
+
+	sdxi_amd_qos_desc_init(&desc, opcode_type,
+			       SDXI_AMD_QOS_DSC_SUBTYPE_TEL);
+	put_unaligned_le64(sdxi_amd_qos_query_selector(0,
+						       SDXI_AMD_QOS_TEL_QTYPE_ACTIVE_POOLS),
+			   &desc.generic.operation[4]);
+	put_unaligned_le64(dma, &desc.generic.operation[12]);
+
+	err = sdxi_adm_submit_desc(adm, &desc, timeout_ms, NULL);
+	if (err)
+		goto out_free_active;
+
+	dma_rmb();
+	memcpy(bitmap, buf + SDXI_AMD_QOS_TEL_HDR_BYTES, bytes);
+
+out_free_active:
+	dma_free_coherent(sdxi_to_dev(sdxi), SDXI_AMD_QOS_TEL_HDR_BYTES + bytes,
+			  buf, dma);
+	return err;
+}
+
+static int sdxi_amd_qos_get_assigned_functions(struct sdxi_dev *sdxi,
+					       struct sdxi_cxt *adm,
+					       u16 opcode_type, u16 pool_num,
+					       unsigned int timeout_ms,
+					       u16 *assigned_functions)
+{
+	struct sdxi_desc desc = {};
+	dma_addr_t dma;
+	u8 *buf;
+	u32 counts;
+	u32 target_scope;
+	int err;
+
+	if (!assigned_functions)
+		return -EINVAL;
+
+	err = sdxi_amd_qos_admin_ready(adm);
+	if (err)
+		return err;
+
+	buf = dma_alloc_coherent(sdxi_to_dev(sdxi), SDXI_AMD_QOS_TEL_FIXED_BYTES,
+				 &dma, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	memset(buf, 0, SDXI_AMD_QOS_TEL_FIXED_BYTES);
+
+	if (!IS_ALIGNED(dma, SZ_4K)) {
+		err = -EIO;
+		goto out_free;
+	}
+
+	sdxi_amd_qos_desc_init(&desc, opcode_type,
+			       SDXI_AMD_QOS_DSC_SUBTYPE_TEL);
+
+	target_scope = FIELD_PREP(GENMASK(11, 0), pool_num);
+	put_unaligned_le32(target_scope, &desc.generic.operation[0]);
+	put_unaligned_le64(sdxi_amd_qos_query_selector(0,
+						       SDXI_AMD_QOS_TEL_QTYPE_POOL_CONFIG),
+			   &desc.generic.operation[4]);
+
+	/* telemetry_ptr is descriptor bits[191:128], starting at byte offset 16. */
+	put_unaligned_le64(dma, &desc.generic.operation[12]);
+
+	err = sdxi_adm_submit_desc(adm, &desc, timeout_ms, NULL);
+	if (err)
+		goto out_free;
+
+	dma_rmb();
+	counts = get_unaligned_le32(buf + 16);
+	*assigned_functions = (u16)(counts & 0xffff);
+
+out_free:
+	dma_free_coherent(sdxi_to_dev(sdxi), SDXI_AMD_QOS_TEL_FIXED_BYTES,
+			  buf, dma);
+	return err;
+}
