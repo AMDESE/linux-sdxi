@@ -20,6 +20,8 @@ sdxi-core-y := \
 obj-$(CONFIG_SDXI_PCI) += sdxi-pci.o
 sdxi-pci-y := pci.o
 
+obj-y += amd/
+
 obj-$(CONFIG_SDXI_KUNIT_TEST) += \
 	completion_kunit.o    \
 	descriptor_kunit.o    \

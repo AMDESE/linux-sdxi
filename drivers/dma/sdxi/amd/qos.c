@@ -6,6 +6,7 @@
  */
 
 #include <linux/capability.h>
+#include <linux/bitfield.h>
 #include <linux/dma-mapping.h>
 #include <linux/export.h>
 #include <kunit/visibility.h>
@@ -133,9 +134,10 @@ sdxi_amd_qos_prepare_output(struct sdxi_admin_vendor_args *args,
 
 static int sdxi_amd_qos_admin_ready(const struct sdxi_cxt *adm)
 {
-	if (!adm || !adm->sq || !adm->ring_state || !adm->sq->cxt_sts)
+	if (!adm || !adm->sq || !adm->ring_state)
 		return -ENODEV;
-	if (sdxi_cxt_sts_state(adm->sq->cxt_sts) != CXTV_RUN)
+	if (FIELD_GET(SDXI_CXT_STS_STATE,
+		      READ_ONCE(adm->sq->cxt_sts.state)) != CXTV_RUN)
 		return -EIO;
 
 	return 0;
@@ -309,6 +311,8 @@ static u16 sdxi_amd_qos_max_vfs(struct sdxi_dev *sdxi)
 	unsigned int totalvfs;
 
 	if (!sdxi || sdxi_fn_reports_vf(sdxi))
+		return 0;
+	if (!dev_is_pci(sdxi_to_dev(sdxi)))
 		return 0;
 
 	pdev = to_pci_dev(sdxi_to_dev(sdxi));
@@ -705,7 +709,7 @@ static int sdxi_amd_qos_prevalidate_fnupd(struct sdxi_dev *sdxi,
 
 	err = sdxi_amd_qos_validate_fnupd_req(req, cap->max_pools,
 					      sdxi_amd_qos_max_vfs(sdxi),
-					      sdxi->max_cxts,
+					      (u32)sdxi->max_cxtid + 1,
 					      cap->feature_flags);
 	if (err)
 		return err;
@@ -742,7 +746,7 @@ static int sdxi_amd_qos_prevalidate_tel(struct sdxi_dev *sdxi,
 
 	err = sdxi_amd_qos_validate_tel_req(req, cap->max_pools,
 					    sdxi_amd_qos_max_vfs(sdxi),
-					    sdxi->max_cxts,
+					    (u32)sdxi->max_cxtid + 1,
 					    cap->feature_flags);
 	if (err)
 		return err;
@@ -1083,3 +1087,49 @@ out_free_submit:
 	dma_free_coherent(sdxi_to_dev(sdxi), dma_size, buf, buf_dma);
 	return err;
 }
+
+static int sdxi_amd_qos_authorize(struct sdxi_dev *sdxi,
+				  const struct sdxi_admin_vendor_args *args)
+{
+	(void)args;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	/* ASQOSE is PF admin-context only, including vendor PROBE. */
+	if (sdxi_fn_reports_vf(sdxi))
+		return -EOPNOTSUPP;
+
+	return 0;
+}
+
+static const struct sdxi_vendor_handler_ops sdxi_amd_qos_ops = {
+	.authorize = sdxi_amd_qos_authorize,
+	.exec = sdxi_amd_qos_exec,
+};
+
+static struct sdxi_vendor_handler sdxi_amd_qos_handler = {
+	.name = "sdxi-amd-qos",
+	.guid = sdxi_amd_guid_qos,
+	.owner = THIS_MODULE,
+	.ops = &sdxi_amd_qos_ops,
+};
+
+static int __init sdxi_amd_qos_init(void)
+{
+	return sdxi_vendor_register(&sdxi_amd_qos_handler);
+}
+
+static void __exit sdxi_amd_qos_exit(void)
+{
+	sdxi_vendor_unregister(&sdxi_amd_qos_handler);
+}
+
+module_init(sdxi_amd_qos_init);
+module_exit(sdxi_amd_qos_exit);
+
+MODULE_AUTHOR("Wei Huang <wei.huang2@amd.com>");
+MODULE_DESCRIPTION("AMD SDXI QoS extension support");
+MODULE_LICENSE("GPL");
+MODULE_IMPORT_NS("SDXI");
+MODULE_SOFTDEP("pre: sdxi-core");

@@ -41,3 +41,14 @@ config SDXI_KUNIT_TEST
 	  SDXI hardware.
 
 	  If unsure, say N.
+
+config SDXI_AMD_QOS
+	tristate "AMD SDXI QoS vendor control"
+	depends on SDXI_CORE
+	help
+	  Enable AMD SDXI Quality-of-Service vendor-command handling
+	  through SDXI_ADMIN_VENDOR. This registers the AMD QoS GUID
+	  with the SDXI core and lets the kernel compose the QoS
+	  descriptors on the admin context on behalf of userspace.
+
+	  If built as a module, this will be called sdxi-amd-qos.
