@@ -81,8 +81,8 @@ struct sdxi_amd_qos_tel_req {
 
 u64 sdxi_amd_qos_query_selector(u16 cxt_num, u8 query_type);
 u32 sdxi_amd_qos_align_bw(u32 bw, u32 granularity);
-int sdxi_amd_qos_validate_devupd_req(u32 device_maxbw, u32 total_allocated_bw,
-				     u32 granularity_bw);
+int sdxi_amd_qos_validate_devupd_req(u32 device_maxbw, u32 device_maxbw_cap,
+				     u32 total_allocated_bw, u32 granularity_bw);
 int sdxi_amd_qos_validate_poolupd_req(const struct sdxi_amd_qos_poolupd_req *req,
 				      u16 max_pools, u32 granularity_bw);
 int sdxi_amd_qos_validate_fnupd_req(const struct sdxi_amd_qos_fnupd_req *req,
