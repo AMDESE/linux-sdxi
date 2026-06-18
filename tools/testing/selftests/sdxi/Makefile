@@ -2,7 +2,7 @@ werror := -Werror
 CFLAGS += -std=gnu17 -Og -Wall -Wextra $(werror) $(TOOLS_INCLUDES) $(KHDR_INCLUDES)
 CPPFLAGS += -I../../../include/ -Ilib/
 
-TEST_GEN_PROGS := context nop copy error device admin_cmd
+TEST_GEN_PROGS := context nop copy error device admin_cmd rkey
 
 include ../lib.mk
 
