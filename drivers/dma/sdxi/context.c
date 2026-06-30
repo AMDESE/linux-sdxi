@@ -24,6 +24,7 @@
 
 #include "completion.h"
 #include "context.h"
+#include "descriptor.h"
 #include "hw.h"
 #include "ring.h"
 #include "sdxi.h"
@@ -361,4 +362,39 @@ void sdxi_client_cxts_exit(struct sdxi_dev *sdxi)
 	xa_for_each(&sdxi->client_cxts, index, cxt)
 		sdxi_free_cxt(cxt);
 	xa_destroy(&sdxi->client_cxts);
+}
+
+/*
+ * Attach a claimed, initialized completion block to a descriptor slot.
+ * The descriptor is not published; the caller sets the valid bit (and
+ * kicks) once the operation is fully encoded.
+ */
+void sdxi_cxt_attach_cst(struct sdxi_slot slot,
+			 const struct sdxi_completion *comp)
+{
+	struct sdxi_desc *desc = sdxi_slot_desc(slot);
+
+	/*
+	 * We use simple (non-atomic) completion status mode only; set the
+	 * descriptor's CSR bit. See SDXI 1.0 4.4.2 Completion-Status Modes.
+	 */
+	sdxi_desc_set_csr(desc);
+	sdxi_desc_set_csb(desc, comp->cst_blk_dma);
+}
+
+void sdxi_cxt_submit(struct sdxi_cxt *cxt, struct sdxi_slot slot,
+		     const struct sdxi_completion *comp, enum sdxi_submit_flags flags)
+{
+	struct sdxi_desc *desc = sdxi_slot_desc(slot);
+
+	if (flags & SDXI_CXT_SUBMIT_FENCE)
+		sdxi_desc_set_fence(desc);
+
+	if (comp)
+		sdxi_cxt_attach_cst(slot, comp);
+
+	sdxi_desc_make_valid(desc);
+
+	if (flags & SDXI_CXT_SUBMIT_KICK)
+		sdxi_cxt_kick(cxt);
 }
