@@ -24,6 +24,7 @@
 
 #include "completion.h"
 #include "context.h"
+#include "descriptor.h"
 #include "hw.h"
 #include "ring.h"
 #include "sdxi.h"
@@ -401,4 +402,37 @@ void sdxi_cxt_exit(struct sdxi_cxt *cxt)
 
 	sdxi_rescind_cxt(cxt);
 	sdxi_free_cxt(cxt);
+}
+
+void sdxi_cxt_submit(struct sdxi_cxt *cxt, struct sdxi_desc *desc,
+		     struct sdxi_cst_blk **cst, enum sdxi_submit_flags flags)
+{
+	u32 index = desc - cxt->sq->ring;
+
+	if (flags & SDXI_CXT_SUBMIT_FENCE)
+		sdxi_desc_set_fence(desc);
+	/*
+	 * If the caller intends to use a completion block, initialize
+	 * it, attach it to @desc, and set @cst.
+	 */
+	if (cst) {
+		struct sdxi_completion comp = sdxi_cq_entry(cxt->cq, index);
+
+		sdxi_cst_blk_init(comp.cst_blk);
+
+		/*
+		 * We use simple (non-atomic) completion status mode
+		 * only; set the descriptor's CSR bit. See SDXI 1.0
+		 * 4.4.2 Completion-Status Modes.
+		 */
+		sdxi_desc_set_csr(desc);
+
+		sdxi_desc_set_csb(desc, comp.cst_blk_dma);
+		*cst = comp.cst_blk;
+	}
+
+	sdxi_desc_make_valid(desc);
+
+	if (flags & SDXI_CXT_SUBMIT_KICK)
+		sdxi_cxt_kick(cxt);
 }

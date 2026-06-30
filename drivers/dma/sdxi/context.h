@@ -9,6 +9,7 @@
 #include <linux/array_size.h>
 #include <linux/dma-mapping.h>
 #include <linux/idr.h>
+#include <linux/io.h>
 #include <linux/string.h>
 #include <linux/types.h>
 
@@ -54,6 +55,14 @@ int sdxi_admin_cxt_init(struct sdxi_dev *sdxi);
 struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi);
 void sdxi_cxt_exit(struct sdxi_cxt *cxt);
 
+enum sdxi_submit_flags {
+	SDXI_CXT_SUBMIT_KICK  = BIT(0),
+	SDXI_CXT_SUBMIT_FENCE = BIT(1),
+};
+
+void sdxi_cxt_submit(struct sdxi_cxt *cxt, struct sdxi_desc *desc,
+		     struct sdxi_cst_blk **cst, enum sdxi_submit_flags flags);
+
 static inline struct sdxi_cxt *to_admin_cxt(const struct sdxi_cxt *cxt)
 {
 	return cxt->sdxi->admin_cxt;
@@ -62,6 +71,19 @@ static inline struct sdxi_cxt *to_admin_cxt(const struct sdxi_cxt *cxt)
 static inline bool sdxi_cxt_is_admin(const struct sdxi_cxt *cxt)
 {
 	return cxt == to_admin_cxt(cxt);
+}
+
+static inline void sdxi_cxt_kick(struct sdxi_cxt *cxt)
+{
+	/*
+	 * Ring the context's doorbell with its current write index.
+	 *
+	 * It's OK to locklessly sample the index for this purpose: it
+	 * monotonically increases and the implementation is required
+	 * to ignore out-of-order doorbell values (SDXI 1.0 5.2.1
+	 * Multi-Producer Enqueue).
+	 */
+	writeq(le64_to_cpu(READ_ONCE(cxt->sq->write_index)), cxt->db);
 }
 
 static inline struct sdxi_akey_ent *sdxi_alloc_akey(struct sdxi_cxt *cxt)
