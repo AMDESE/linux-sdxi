@@ -8,6 +8,7 @@ sdxi-core-y := \
 	device.o      \
 	dma.o         \
 	error.o       \
+	intr.o        \
 	keys.o        \
 	process.o     \
 	ring.o

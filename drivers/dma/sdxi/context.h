@@ -12,6 +12,7 @@
 #include <linux/io.h>
 #include <linux/mutex.h>
 #include <linux/refcount.h>
+#include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/types.h>
 #include <linux/wait.h>
@@ -30,6 +31,9 @@ struct sdxi_process;
 struct sdxi_akey_table {
 	struct sdxi_akey_ent entry[SZ_4K / sizeof(struct sdxi_akey_ent)];
 };
+
+struct eventfd_ctx;
+struct sdxi_process;
 
 /* For encoding the akey table size in CXT_L1_ENT's akey_sz. */
 static inline u8 akey_table_order(const struct sdxi_akey_table *tbl)
@@ -75,6 +79,13 @@ struct sdxi_cxt {
 
 	struct sdxi_ring_state *ring_state;
 	struct sdxi_process *process;
+
+	spinlock_t intr_lock;		/* eventfd and interrupt state */
+	struct eventfd_ctx *intr_eventfd;
+	int intr_vector;
+	int intr_irq;
+	u16 intr_akey;
+	bool intr_armed;
 };
 
 int sdxi_admin_cxt_init(struct sdxi_dev *sdxi);

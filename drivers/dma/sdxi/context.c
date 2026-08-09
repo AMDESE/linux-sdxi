@@ -29,6 +29,7 @@
 #include "context.h"
 #include "descriptor.h"
 #include "hw.h"
+#include "intr.h"
 #include "process.h"
 #include "ring.h"
 #include "sdxi.h"
@@ -91,8 +92,11 @@ static struct sdxi_cxt *sdxi_alloc_cxt(struct sdxi_dev *sdxi)
 	refcount_set(&cxt->refs, 1);
 	mutex_init(&cxt->cleanup_lock);
 	mutex_init(&cxt->akey_lock);
+	spin_lock_init(&cxt->intr_lock);
 	init_waitqueue_head(&cxt->poll_wq);
 	INIT_DELAYED_WORK(&cxt->cleanup_work, sdxi_cxt_cleanup_workfn);
+	cxt->intr_vector = -1;
+	cxt->intr_irq = -1;
 	ida_init(&cxt->akey_ida);
 	cxt->pasid = IOMMU_NO_PASID;
 	cxt->opb_000_enb = sdxi->op_grp_cap;
@@ -532,6 +536,8 @@ struct sdxi_cxt *sdxi_cxt_get_by_id(struct sdxi_dev *sdxi, u16 cxt_id)
 static void sdxi_cxt_release_resources(struct sdxi_cxt *cxt)
 {
 	struct sdxi_dev *sdxi = cxt->sdxi;
+
+	sdxi_cxt_exit_intr(cxt);
 
 	if (cxt->registered) {
 		WARN_ON(xa_erase(&sdxi->client_cxts, cxt->id) != cxt);
