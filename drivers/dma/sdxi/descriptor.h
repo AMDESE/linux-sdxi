@@ -138,8 +138,35 @@ struct sdxi_sync {
 		SDXI_SYNC_FLT_FN   = 0x4,
 	} filter;
 	struct sdxi_cxt_range range;
+	u16 key_start;
+	u16 key_end;
 };
 
 int sdxi_encode_sync(struct sdxi_desc *desc, const struct sdxi_sync *params);
+
+struct sdxi_disc {
+	u16 index_start;
+	u16 index_end;
+	dma_addr_t addr;
+};
+
+int sdxi_encode_disc(struct sdxi_desc *desc, const struct sdxi_disc *params);
+
+struct sdxi_akey_upd {
+	struct sdxi_cxt_range range;
+	u16 akey_start;
+	u16 akey_end;
+};
+
+int sdxi_encode_akey_upd(struct sdxi_desc *desc,
+			 const struct sdxi_akey_upd *params);
+
+struct sdxi_rkey_upd {
+	u16 rkey_start;
+	u16 rkey_end;
+};
+
+int sdxi_encode_rkey_upd(struct sdxi_desc *desc,
+			 const struct sdxi_rkey_upd *params);
 
 #endif /* DMA_SDXI_DESCRIPTOR_H */

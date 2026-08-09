@@ -163,6 +163,54 @@ static const struct packed_field_u16 cxt_upd_subfields[] = {
 	cxt_upd_field(95, 80, cxt_end),
 };
 
+/* DSC_AKEY_UPD */
+struct unpacked__akey_upd {
+	u16 cxt_start;
+	u16 cxt_end;
+	u16 akey_start;
+	u16 akey_end;
+};
+
+#define akey_upd_field(_high, _low, _member) \
+	desc_field(_high, _low, struct unpacked__akey_upd, _member)
+
+static const struct packed_field_u16 akey_upd_subfields[] = {
+	akey_upd_field(79, 64, cxt_start),
+	akey_upd_field(95, 80, cxt_end),
+	akey_upd_field(111, 96, akey_start),
+	akey_upd_field(127, 112, akey_end),
+};
+
+/* DSC_RKEY_UPD */
+struct unpacked__rkey_upd {
+	u16 rkey_start;
+	u16 rkey_end;
+};
+
+#define rkey_upd_field(_high, _low, _member) \
+	desc_field(_high, _low, struct unpacked__rkey_upd, _member)
+
+static const struct packed_field_u16 rkey_upd_subfields[] = {
+	rkey_upd_field(111, 96, rkey_start),
+	rkey_upd_field(127, 112, rkey_end),
+};
+
+/* DSC_DISC */
+struct unpacked__disc {
+	u16 index_start;
+	u16 index_end;
+	u64 addr;
+};
+
+#define disc_field(_high, _low, _member) \
+	desc_field(_high, _low, struct unpacked__disc, _member)
+
+static const struct packed_field_u16 disc_subfields[] = {
+	disc_field(42, 32, index_start),
+	disc_field(58, 48, index_end),
+	disc_field(191, 132, addr),
+};
+
 /* DSC_GENERIC */
 struct unpacked_desc {
 	u64 csb_ptr;
@@ -182,6 +230,9 @@ struct unpacked_desc {
 		struct unpacked__cxt_start cxt_start;
 		struct unpacked__cxt_stop cxt_stop;
 		struct unpacked__cxt_upd cxt_upd;
+		struct unpacked__akey_upd akey_upd;
+		struct unpacked__rkey_upd rkey_upd;
+		struct unpacked__disc disc;
 	};
 };
 
@@ -234,6 +285,9 @@ define_unpack_fn(sync)
 define_unpack_fn(cxt_start)
 define_unpack_fn(cxt_stop)
 define_unpack_fn(cxt_upd)
+define_unpack_fn(akey_upd)
+define_unpack_fn(rkey_upd)
+define_unpack_fn(disc)
 
 static void desc_poison(struct sdxi_desc *d)
 {
@@ -489,6 +543,8 @@ static void sync(struct kunit *t)
 	struct sdxi_sync sync = {
 		.filter = SDXI_SYNC_FLT_STOP,
 		.range = sdxi_cxt_range(1, U16_MAX),
+		.key_start = 2,
+		.key_end = 3,
 	};
 	struct sdxi_desc desc;
 	struct unpacked_desc unpacked;
@@ -503,6 +559,97 @@ static void sync(struct kunit *t)
 	KUNIT_EXPECT_EQ(t, unpacked.sync.flt, SDXI_SYNC_FLT_STOP);
 	KUNIT_EXPECT_EQ(t, unpacked.sync.cxt_start, 1);
 	KUNIT_EXPECT_EQ(t, unpacked.sync.cxt_end, U16_MAX);
+	KUNIT_EXPECT_EQ(t, unpacked.sync.key_start, 2);
+	KUNIT_EXPECT_EQ(t, unpacked.sync.key_end, 3);
+}
+
+static void akey_upd(struct kunit *t)
+{
+	struct sdxi_akey_upd update = {
+		.range = sdxi_cxt_range(3, 5),
+		.akey_start = 7,
+		.akey_end = 11,
+	};
+	struct unpacked_desc unpacked;
+	struct sdxi_desc desc;
+
+	desc_poison(&desc);
+	KUNIT_ASSERT_EQ(t, 0, sdxi_encode_akey_upd(&desc, &update));
+	unpack_akey_upd(&unpacked, &desc);
+
+	KUNIT_EXPECT_EQ(t, unpacked.type, SDXI_DSC_OP_TYPE_ADMIN);
+	KUNIT_EXPECT_EQ(t, unpacked.subtype, SDXI_DSC_OP_SUBTYPE_AKEY_UPD);
+	KUNIT_EXPECT_EQ(t, unpacked.akey_upd.cxt_start, 3);
+	KUNIT_EXPECT_EQ(t, unpacked.akey_upd.cxt_end, 5);
+	KUNIT_EXPECT_EQ(t, unpacked.akey_upd.akey_start, 7);
+	KUNIT_EXPECT_EQ(t, unpacked.akey_upd.akey_end, 11);
+
+	update.range = (struct sdxi_cxt_range) {
+		.cxt_start = 2,
+		.cxt_end = 1,
+	};
+	KUNIT_EXPECT_EQ(t, -EINVAL, sdxi_encode_akey_upd(&desc, &update));
+
+	update.range = sdxi_cxt_range_single(1);
+	update.akey_start = 2;
+	update.akey_end = 1;
+	KUNIT_EXPECT_EQ(t, -EINVAL, sdxi_encode_akey_upd(&desc, &update));
+}
+
+static void rkey_upd(struct kunit *t)
+{
+	struct sdxi_rkey_upd update = {
+		.rkey_start = 13,
+		.rkey_end = 17,
+	};
+	struct unpacked_desc unpacked;
+	struct sdxi_desc desc;
+
+	desc_poison(&desc);
+	KUNIT_ASSERT_EQ(t, 0, sdxi_encode_rkey_upd(&desc, &update));
+	unpack_rkey_upd(&unpacked, &desc);
+
+	KUNIT_EXPECT_EQ(t, unpacked.type, SDXI_DSC_OP_TYPE_ADMIN);
+	KUNIT_EXPECT_EQ(t, unpacked.subtype, SDXI_DSC_OP_SUBTYPE_RKEY_UPD);
+	KUNIT_EXPECT_EQ(t, unpacked.rkey_upd.rkey_start, 13);
+	KUNIT_EXPECT_EQ(t, unpacked.rkey_upd.rkey_end, 17);
+
+	update.rkey_start = 2;
+	update.rkey_end = 1;
+	KUNIT_EXPECT_EQ(t, -EINVAL, sdxi_encode_rkey_upd(&desc, &update));
+}
+
+static void disc(struct kunit *t)
+{
+	struct sdxi_disc discovery = {
+		.index_start = 1,
+		.index_end = 31,
+		.addr = 0x12340,
+	};
+	struct unpacked_desc unpacked;
+	struct sdxi_desc desc;
+
+	desc_poison(&desc);
+	KUNIT_ASSERT_EQ(t, 0, sdxi_encode_disc(&desc, &discovery));
+	unpack_disc(&unpacked, &desc);
+
+	KUNIT_EXPECT_EQ(t, unpacked.type, SDXI_DSC_OP_TYPE_ADMIN);
+	KUNIT_EXPECT_EQ(t, unpacked.subtype, SDXI_DSC_OP_SUBTYPE_DISC);
+	KUNIT_EXPECT_EQ(t, unpacked.disc.index_start, 1);
+	KUNIT_EXPECT_EQ(t, unpacked.disc.index_end, 31);
+	KUNIT_EXPECT_EQ(t, unpacked.disc.addr, 0x1234);
+
+	discovery.index_start = 2;
+	discovery.index_end = 1;
+	KUNIT_EXPECT_EQ(t, -EINVAL, sdxi_encode_disc(&desc, &discovery));
+
+	discovery.index_start = 0;
+	discovery.index_end = 2048;
+	KUNIT_EXPECT_EQ(t, -EINVAL, sdxi_encode_disc(&desc, &discovery));
+
+	discovery.index_end = 1;
+	discovery.addr = 0x12341;
+	KUNIT_EXPECT_EQ(t, -EINVAL, sdxi_encode_disc(&desc, &discovery));
 }
 
 static struct kunit_case generic_desc_tcs[] = {
@@ -513,6 +660,9 @@ static struct kunit_case generic_desc_tcs[] = {
 	KUNIT_CASE(cxt_stop),
 	KUNIT_CASE(cxt_upd),
 	KUNIT_CASE(sync),
+	KUNIT_CASE(akey_upd),
+	KUNIT_CASE(rkey_upd),
+	KUNIT_CASE(disc),
 	{}
 };
 
