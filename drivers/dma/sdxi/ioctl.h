@@ -42,7 +42,6 @@ struct sdxi_ioctl_desc {
 	unsigned int file_flags;
 	enum sdxi_ioctl_access_class access;
 	sdxi_ioctl_t *func;
-	const char *name;
 };
 
 #define SDXI_IOCTL_F_DEVICE	BIT(0)

@@ -110,12 +110,14 @@ static const unsigned long gsv_transition_timeout_us = USEC_PER_SEC * 1;
 
 static void sdxi_write_fn_gsr(struct sdxi_dev *sdxi, enum sdxi_fn_gsr cmd)
 {
-	u64 ctl0 = sdxi_read64(sdxi, SDXI_MMIO_CTL0);
+	u64 ctl0;
 
+	mutex_lock(&sdxi->reg_lock);
+	ctl0 = sdxi_read64(sdxi, SDXI_MMIO_CTL0);
 	dev_dbg(sdxi->dev, "MMIO_CTL0.fn_gsr = %#x (%s)\n", cmd, gsr_str(cmd));
-
 	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_GSR, &ctl0, cmd);
 	sdxi_write64(sdxi, SDXI_MMIO_CTL0, ctl0);
+	mutex_unlock(&sdxi->reg_lock);
 }
 
 /*
@@ -319,11 +321,13 @@ static int sdxi_fn_prepare(struct sdxi_dev *sdxi)
 	if (err)
 		return err;
 
+	mutex_lock(&sdxi->reg_lock);
 	ctl0 = sdxi_read64(sdxi, SDXI_MMIO_CTL0);
 	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_ERR_INTR_EN, &ctl0, 0);
 	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_PASID_VL, &ctl0, 0);
 	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_PASID, &ctl0, 0);
 	sdxi_write64(sdxi, SDXI_MMIO_CTL0, ctl0);
+	mutex_unlock(&sdxi->reg_lock);
 
 	/* Restore CTL2's reset limits, with operation groups disabled. */
 	cap1 = sdxi_read64(sdxi, SDXI_MMIO_CAP1);
@@ -534,6 +538,7 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 	ida_init(&sdxi->vectors);
 	xa_init_flags(&sdxi->client_cxts, XA_FLAGS_ALLOC1);
 	mutex_init(&sdxi->cxt_lock);
+	mutex_init(&sdxi->reg_lock);
 	mutex_init(&sdxi->admin_lock);
 	mutex_init(&sdxi->rkey_lock);
 	sdxi->error_irq = -1;

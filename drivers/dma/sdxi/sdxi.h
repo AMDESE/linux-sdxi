@@ -96,6 +96,7 @@ struct sdxi_dev {
 	dma_addr_t L1_dma[SDXI_L2_TABLE_ENTRIES];
 	u16 L1_users[SDXI_L2_TABLE_ENTRIES];
 	struct mutex cxt_lock;		/* context table serialization */
+	struct mutex reg_lock;		/* MMIO register updates */
 
 	/* RKey table */
 	struct mutex rkey_lock;

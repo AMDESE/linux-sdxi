@@ -267,6 +267,7 @@ int sdxi_error_init(struct sdxi_dev *sdxi)
 	sdxi_write64(sdxi, SDXI_MMIO_ERR_WRT, 0);
 	sdxi_write64(sdxi, SDXI_MMIO_ERR_RD, 0);
 
+	mutex_lock(&sdxi->reg_lock);
 	reg = sdxi_read64(sdxi, SDXI_MMIO_ERR_CTL);
 	FIELD_MODIFY(SDXI_MMIO_ERR_CTL_EN, &reg, 1);
 	sdxi_write64(sdxi, SDXI_MMIO_ERR_CTL, reg);
@@ -274,6 +275,7 @@ int sdxi_error_init(struct sdxi_dev *sdxi)
 	reg = sdxi_read64(sdxi, SDXI_MMIO_CTL0);
 	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_ERR_INTR_EN, &reg, 1);
 	sdxi_write64(sdxi, SDXI_MMIO_CTL0, reg);
+	mutex_unlock(&sdxi->reg_lock);
 
 	size_order = ilog2(SDXI_ERRLOG_SIZE) - ilog2(SZ_4K);
 	reg = FIELD_PREP(SDXI_MMIO_ERR_CFG_PTR,
@@ -294,6 +296,7 @@ void sdxi_error_exit(struct sdxi_dev *sdxi)
 
 	sdxi_write64(sdxi, SDXI_MMIO_ERR_CFG, 0);
 
+	mutex_lock(&sdxi->reg_lock);
 	reg = sdxi_read64(sdxi, SDXI_MMIO_ERR_CTL);
 	FIELD_MODIFY(SDXI_MMIO_ERR_CTL_EN, &reg, 0);
 	sdxi_write64(sdxi, SDXI_MMIO_ERR_CTL, reg);
@@ -301,6 +304,7 @@ void sdxi_error_exit(struct sdxi_dev *sdxi)
 	reg = sdxi_read64(sdxi, SDXI_MMIO_CTL0);
 	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_ERR_INTR_EN, &reg, 0);
 	sdxi_write64(sdxi, SDXI_MMIO_CTL0, reg);
+	mutex_unlock(&sdxi->reg_lock);
 
 	if (sdxi->error_irq >= 0)
 		devm_free_irq(sdxi->dev, sdxi->error_irq, sdxi);
