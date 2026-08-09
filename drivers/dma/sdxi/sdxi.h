@@ -81,6 +81,10 @@ struct sdxi_bus_ops {
 	 */
 	int (*mmap_doorbell)(struct sdxi_dev *sdxi, struct sdxi_cxt *cxt,
 			     struct vm_area_struct *vma);
+	/**
+	 * @chardev_name: Format a bus-specific character device name.
+	 */
+	int (*chardev_name)(struct sdxi_dev *sdxi, char *name, size_t size);
 };
 
 struct sdxi_dev {
@@ -137,12 +141,23 @@ struct sdxi_dev {
 	struct cdev cdev;
 	struct device chardev;
 	int minor;
+	bool is_vf;
 	bool atomic_ops_enabled;
 	bool online;
 	struct rw_semaphore state_lock;	/* online state and user operations */
 
 	const struct sdxi_bus_ops *bus_ops;
 };
+
+static inline struct device *sdxi_to_dev(const struct sdxi_dev *sdxi)
+{
+	return sdxi->dev;
+}
+
+static inline bool sdxi_fn_reports_vf(const struct sdxi_dev *sdxi)
+{
+	return sdxi->is_vf;
+}
 
 static inline bool sdxi_dev_compatible(const struct sdxi_dev *sdxi,
 				       struct sdxi_version version)

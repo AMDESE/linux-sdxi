@@ -11,6 +11,7 @@
 #include <linux/err.h>
 #include <linux/io.h>
 #include <linux/iomap.h>
+#include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/overflow.h>
@@ -25,6 +26,8 @@ enum sdxi_mmio_bars {
 	SDXI_PCI_BAR_CTL_REGS = 0,
 	SDXI_PCI_BAR_DOORBELL = 2,
 };
+
+static struct pci_driver sdxi_driver;
 
 static struct pci_dev *sdxi_to_pci_dev(const struct sdxi_dev *sdxi)
 {
@@ -167,6 +170,29 @@ static int sdxi_pci_mmap_doorbell(struct sdxi_dev *sdxi,
 				  sdxi->db_stride, vma->vm_page_prot);
 }
 
+static int sdxi_pci_chardev_name(struct sdxi_dev *sdxi, char *name,
+				 size_t size)
+{
+	struct pci_dev *pdev = sdxi_to_pci_dev(sdxi);
+	struct sdxi_dev *pf_sdxi;
+	int vf_id;
+
+	if (!pdev->is_virtfn)
+		return scnprintf(name, size, "sdxi%d", sdxi->minor);
+	if (!sdxi->is_vf)
+		return -EINVAL;
+
+	pf_sdxi = pci_iov_get_pf_drvdata(pdev, &sdxi_driver);
+	if (IS_ERR_OR_NULL(pf_sdxi) || pf_sdxi->minor < 0)
+		return -EPROBE_DEFER;
+
+	vf_id = pci_iov_vf_id(pdev);
+	if (vf_id < 0)
+		return vf_id;
+
+	return scnprintf(name, size, "sdxi%dv%d", pf_sdxi->minor, vf_id);
+}
+
 static const struct sdxi_bus_ops sdxi_pci_ops = {
 	.owner = THIS_MODULE,
 	.init = sdxi_pci_init,
@@ -174,6 +200,7 @@ static const struct sdxi_bus_ops sdxi_pci_ops = {
 	.get_irq = sdxi_pci_get_irq,
 	.force_quiesce = sdxi_pci_force_quiesce,
 	.mmap_doorbell = sdxi_pci_mmap_doorbell,
+	.chardev_name = sdxi_pci_chardev_name,
 };
 
 static int sdxi_pci_probe(struct pci_dev *pdev,
@@ -184,8 +211,8 @@ static int sdxi_pci_probe(struct pci_dev *pdev,
 
 static void sdxi_pci_remove(struct pci_dev *pdev)
 {
-	sdxi_unregister(&pdev->dev);
 	pci_disable_sriov(pdev);
+	sdxi_unregister(&pdev->dev);
 }
 
 static const struct pci_device_id sdxi_id_table[] = {

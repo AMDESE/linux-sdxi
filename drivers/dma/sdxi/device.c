@@ -388,6 +388,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	/* Read capabilities and features. */
 	cap0 = sdxi_read64(sdxi, SDXI_MMIO_CAP0);
 	sdxi->sfunc = FIELD_GET(SDXI_MMIO_CAP0_SFUNC, cap0);
+	sdxi->is_vf = FIELD_GET(SDXI_MMIO_CAP0_VF, cap0);
 	sdxi->db_stride = SZ_4K;
 	sdxi->db_stride *= 1U << FIELD_GET(SDXI_MMIO_CAP0_DB_STRIDE, cap0);
 	if (sdxi->db_stride > sdxi->db_size)

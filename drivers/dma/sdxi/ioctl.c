@@ -8,7 +8,6 @@
 #include <linux/cdev.h>
 #include <linux/bitfield.h>
 #include <linux/capability.h>
-#include <linux/cleanup.h>
 #include <linux/compat.h>
 #include <linux/anon_inodes.h>
 #include <linux/device.h>
@@ -17,6 +16,7 @@
 #include <linux/fs.h>
 #include <linux/idr.h>
 #include <linux/limits.h>
+#include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/minmax.h>
 #include <linux/module.h>
@@ -1067,7 +1067,6 @@ static int sdxi_mmap_live(struct file *file, struct vm_area_struct *vma)
 {
 	struct sdxi_file *sf = file->private_data;
 	struct sdxi_cxt *cxt;
-	struct sdxi_dev *sdxi;
 	u64 allowed_mask;
 	u64 token;
 	u64 type;
@@ -1080,11 +1079,6 @@ static int sdxi_mmap_live(struct file *file, struct vm_area_struct *vma)
 	ret = sdxi_file_check_owner(sf->process);
 	if (ret)
 		return ret;
-
-	sdxi = sf->process->sdxi;
-	guard(rwsem_read)(&sdxi->state_lock);
-	if (!sdxi->online)
-		return -ENODEV;
 
 	cxt = sf->cxt;
 	if (!cxt || !cxt->id)
@@ -1282,6 +1276,7 @@ void sdxi_chardev_exit(void)
 
 int sdxi_chardev_register(struct sdxi_dev *sdxi)
 {
+	char name[32];
 	dev_t devt;
 	int minor;
 	int ret;
@@ -1292,13 +1287,21 @@ int sdxi_chardev_register(struct sdxi_dev *sdxi)
 		return minor;
 
 	sdxi->minor = minor;
+	if (sdxi->bus_ops->chardev_name) {
+		ret = sdxi->bus_ops->chardev_name(sdxi, name, sizeof(name));
+		if (ret < 0)
+			goto free_minor;
+	} else {
+		scnprintf(name, sizeof(name), "sdxi%d", minor);
+	}
+
 	devt = MKDEV(MAJOR(sdxi_devt), minor);
 	sdxi->chardev.devt = devt;
 	sdxi->chardev.class = sdxi_class;
 	sdxi->chardev.parent = sdxi->dev;
 	sdxi->chardev.groups = sdxi_dev_groups;
 	dev_set_drvdata(&sdxi->chardev, sdxi);
-	ret = dev_set_name(&sdxi->chardev, "sdxi%d", minor);
+	ret = dev_set_name(&sdxi->chardev, "%s", name);
 	if (ret)
 		goto free_minor;
 
