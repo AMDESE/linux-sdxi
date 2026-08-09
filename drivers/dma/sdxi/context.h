@@ -65,6 +65,7 @@ struct sdxi_cxt {
 	bool registered;
 	bool published;
 	bool update_pending;
+	bool counted;
 	bool started;
 
 	struct sdxi_cxt_ctl *cxt_ctl;

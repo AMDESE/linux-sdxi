@@ -424,8 +424,11 @@ static int sdxi_publish_cxt(struct sdxi_cxt *cxt,
 	};
 
 	err = configure_L1_entry(ent, &L1_cfg);
-	if (!err)
+	if (!err) {
 		cxt->sdxi->L1_users[l2_idx]++;
+		cxt->sdxi->cxt_count++;
+		cxt->counted = true;
+	}
 
 out_unlock:
 	mutex_unlock(&cxt->sdxi->cxt_lock);
@@ -459,6 +462,10 @@ static void sdxi_rescind_cxt(struct sdxi_cxt *cxt)
 		goto out_unlock;
 
 	sdxi->L1_users[l2_idx]--;
+	if (cxt->counted) {
+		sdxi->cxt_count--;
+		cxt->counted = false;
+	}
 
 out_unlock:
 	mutex_unlock(&sdxi->cxt_lock);

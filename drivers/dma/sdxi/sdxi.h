@@ -92,6 +92,7 @@ struct sdxi_dev {
 	struct sdxi_version sdxi_version;
 
 	/* hardware capabilities (from cap0 & cap1) */
+	u16 sfunc;
 	u32 db_stride;			/* doorbell stride in bytes */
 	u64 max_ring_entries;
 	u16 max_cxtid;			/* Maximum context ID allowed. */
@@ -129,6 +130,7 @@ struct sdxi_dev {
 	bool admin_dead;
 	struct xarray client_cxts; /* context id -> (struct sdxi_cxt *) */
 	u32 mmap_gen;
+	unsigned int cxt_count;
 
 	bool has_mailbox;
 

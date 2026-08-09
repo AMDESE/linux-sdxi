@@ -36,6 +36,7 @@
 #include "mmio.h"
 #include "process.h"
 #include "sdxi.h"
+#include "sysfs.h"
 #include "vendor.h"
 
 #define SDXI_MAX_MINORS	256
@@ -1295,6 +1296,7 @@ int sdxi_chardev_register(struct sdxi_dev *sdxi)
 	sdxi->chardev.devt = devt;
 	sdxi->chardev.class = sdxi_class;
 	sdxi->chardev.parent = sdxi->dev;
+	sdxi->chardev.groups = sdxi_dev_groups;
 	dev_set_drvdata(&sdxi->chardev, sdxi);
 	ret = dev_set_name(&sdxi->chardev, "sdxi%d", minor);
 	if (ret)
