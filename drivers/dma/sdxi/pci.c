@@ -130,6 +130,7 @@ static void sdxi_pci_force_quiesce(struct sdxi_dev *sdxi)
 }
 
 static const struct sdxi_bus_ops sdxi_pci_ops = {
+	.owner = THIS_MODULE,
 	.init = sdxi_pci_init,
 	.reset = sdxi_pci_reset,
 	.get_irq = sdxi_pci_get_irq,

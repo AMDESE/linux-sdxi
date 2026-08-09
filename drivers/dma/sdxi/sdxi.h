@@ -9,11 +9,14 @@
 #define DMA_SDXI_H
 
 #include <linux/bug.h>
+#include <linux/cdev.h>
 #include <linux/compiler_types.h>
+#include <linux/device.h>
 #include <linux/dev_printk.h>
 #include <linux/idr.h>
 #include <linux/io.h>
 #include <linux/mutex.h>
+#include <linux/rwsem.h>
 #include <linux/types.h>
 #include <linux/xarray.h>
 
@@ -44,11 +47,14 @@ enum {
 };
 
 struct sdxi_dev;
+struct module;
 
 /**
  * struct sdxi_bus_ops - Bus-specific methods for SDXI devices.
  */
 struct sdxi_bus_ops {
+	/** @owner: Module providing these operations, or NULL if built in. */
+	struct module *owner;
 	/**
 	 * @init: Map control registers and doorbell region, allocate
 	 *        IRQ ranges. Invoked before bus-agnostic SDXI
@@ -117,6 +123,12 @@ struct sdxi_dev {
 
 	bool has_mailbox;
 
+	struct cdev cdev;
+	struct device chardev;
+	int minor;
+	bool online;
+	struct rw_semaphore state_lock;	/* online state and user operations */
+
 	const struct sdxi_bus_ops *bus_ops;
 };
 
@@ -163,6 +175,10 @@ void sdxi_unregister(struct device *dev);
 bool sdxi_dev_in_error(const struct sdxi_dev *sdxi);
 void sdxi_dev_force_quiesce(struct sdxi_dev *sdxi);
 void sdxi_dev_fail(struct sdxi_dev *sdxi);
+int sdxi_chardev_init(void);
+void sdxi_chardev_exit(void);
+int sdxi_chardev_register(struct sdxi_dev *sdxi);
+void sdxi_chardev_unregister(struct sdxi_dev *sdxi);
 
 static inline u64 sdxi_read64(const struct sdxi_dev *sdxi, enum sdxi_reg reg)
 {

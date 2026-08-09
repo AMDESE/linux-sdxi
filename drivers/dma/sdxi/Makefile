@@ -9,6 +9,7 @@ sdxi-core-y := \
 	dma.o         \
 	error.o       \
 	intr.o        \
+	ioctl.o       \
 	keys.o        \
 	process.o     \
 	ring.o

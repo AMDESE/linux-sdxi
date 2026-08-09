@@ -6,6 +6,7 @@
  */
 
 #include <linux/iommu.h>
+#include <linux/module.h>
 #include <linux/sched/mm.h>
 #include <linux/sched/task.h>
 #include <linux/slab.h>
@@ -100,6 +101,7 @@ void sdxi_process_unbind_sva(struct sdxi_process *process,
 
 static void sdxi_process_free(struct sdxi_process *process)
 {
+	struct sdxi_dev *sdxi = process->sdxi;
 	struct iommu_sva *sva;
 	u32 pasid;
 
@@ -111,6 +113,8 @@ static void sdxi_process_free(struct sdxi_process *process)
 	put_task_struct(process->lead_thread);
 	mmdrop(process->mm);
 	kfree(process);
+	module_put(sdxi->bus_ops->owner);
+	put_device(&sdxi->chardev);
 }
 
 void sdxi_process_get(struct sdxi_process *process)
@@ -167,10 +171,16 @@ struct sdxi_process *sdxi_process_create(struct sdxi_dev *sdxi)
 
 	if (!task->mm)
 		return ERR_PTR(-EINVAL);
+	if (!try_module_get(sdxi->bus_ops->owner))
+		return ERR_PTR(-ENODEV);
+	get_device(&sdxi->chardev);
 
 	process = kzalloc_obj(*process, GFP_KERNEL);
-	if (!process)
+	if (!process) {
+		put_device(&sdxi->chardev);
+		module_put(sdxi->bus_ops->owner);
 		return ERR_PTR(-ENOMEM);
+	}
 
 	refcount_set(&process->refs, 1);
 	mutex_init(&process->mutex);

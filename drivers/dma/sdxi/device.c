@@ -414,8 +414,10 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	sdxi->L2_table = dmam_alloc_coherent(sdxi->dev,
 					     sizeof(*sdxi->L2_table),
 					     &sdxi->L2_dma, GFP_KERNEL);
-	if (!sdxi->L2_table)
-		return -ENOMEM;
+	if (!sdxi->L2_table) {
+		err = -ENOMEM;
+		goto exit_keys;
+	}
 	memset(sdxi->L2_table, 0, sizeof(*sdxi->L2_table));
 
 	cxt_l2 = FIELD_PREP(SDXI_MMIO_CXT_L2_PTR, sdxi->L2_dma >> ilog2(SZ_4K));
@@ -429,11 +431,11 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	 */
 	err = sdxi_admin_cxt_init(sdxi);
 	if (err)
-		return err;
+		goto exit_keys;
 
 	err = sdxi_error_init(sdxi);
 	if (err)
-		return err;
+		goto exit_admin;
 
 	/*
 	 * SDXI 1.0 4.1.8.9: Set MMIO_CTL0.fn_gsr to GSRV_ACTIVE and
@@ -449,8 +451,15 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 		sdxi_error_exit(sdxi);
 		if (sdxi_dev_stop(sdxi))
 			sdxi_dev_force_quiesce(sdxi);
+		goto exit_admin;
 	}
 
+	return 0;
+
+exit_admin:
+	sdxi_admin_cxt_exit(sdxi);
+exit_keys:
+	sdxi_keys_exit(sdxi);
 	return err;
 }
 
@@ -469,8 +478,43 @@ static int sdxi_device_init(struct sdxi_dev *sdxi)
 	if (err)
 		return err;
 
-	sdxi_dma_register(sdxi);
+	err = sdxi_dma_register(sdxi);
+	if (err) {
+		sdxi_error_exit(sdxi);
+		if (sdxi_dev_stop(sdxi))
+			sdxi_dev_force_quiesce(sdxi);
+		sdxi_admin_cxt_exit(sdxi);
+		sdxi_keys_exit(sdxi);
+		return err;
+	}
+
 	return 0;
+}
+
+static void sdxi_device_quiesce(struct sdxi_dev *sdxi)
+{
+	sdxi_error_exit(sdxi);
+	if (sdxi_dev_stop(sdxi))
+		sdxi_dev_force_quiesce(sdxi);
+}
+
+/* Hardware must already be quiesced before this releases DMA-visible state. */
+static void sdxi_device_exit(struct sdxi_dev *sdxi)
+{
+	sdxi_client_cxts_exit(sdxi);
+	sdxi_admin_cxt_exit(sdxi);
+	sdxi_keys_exit(sdxi);
+	xa_destroy(&sdxi->client_cxts);
+	ida_destroy(&sdxi->vectors);
+}
+
+static void sdxi_dev_release(struct device *chardev)
+{
+	struct sdxi_dev *sdxi = container_of(chardev, struct sdxi_dev,
+					     chardev);
+
+	put_device(sdxi->dev);
+	kfree(sdxi);
 }
 
 int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
@@ -478,29 +522,56 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 	struct sdxi_dev *sdxi;
 	int err;
 
-	sdxi = devm_kzalloc(dev, sizeof(*sdxi), GFP_KERNEL);
+	sdxi = kzalloc_obj(*sdxi, GFP_KERNEL);
 	if (!sdxi)
 		return -ENOMEM;
 
-	sdxi->dev = dev;
+	sdxi->dev = get_device(dev);
 	sdxi->bus_ops = ops;
+	device_initialize(&sdxi->chardev);
+	sdxi->chardev.release = sdxi_dev_release;
+	init_rwsem(&sdxi->state_lock);
 	ida_init(&sdxi->vectors);
 	xa_init_flags(&sdxi->client_cxts, XA_FLAGS_ALLOC1);
 	mutex_init(&sdxi->cxt_lock);
 	mutex_init(&sdxi->admin_lock);
 	mutex_init(&sdxi->rkey_lock);
 	sdxi->error_irq = -1;
+	sdxi->minor = -1;
 	dev_set_drvdata(dev, sdxi);
 
 	err = sdxi->bus_ops->init(sdxi);
 	if (err)
-		return err;
+		goto destroy_allocators;
 
 	err = sdxi_fn_prepare(sdxi);
 	if (err)
-		return err;
+		goto destroy_allocators;
 
-	return sdxi_device_init(sdxi);
+	err = sdxi_device_init(sdxi);
+	if (err)
+		goto destroy_allocators;
+
+	down_write(&sdxi->state_lock);
+	err = sdxi_chardev_register(sdxi);
+	if (!err)
+		sdxi->online = true;
+	up_write(&sdxi->state_lock);
+	if (err) {
+		sdxi_device_quiesce(sdxi);
+		sdxi_device_exit(sdxi);
+		goto put_chardev;
+	}
+
+	return 0;
+
+destroy_allocators:
+	xa_destroy(&sdxi->client_cxts);
+	ida_destroy(&sdxi->vectors);
+put_chardev:
+	dev_set_drvdata(dev, NULL);
+	put_device(&sdxi->chardev);
+	return err;
 }
 EXPORT_SYMBOL_NS_GPL(sdxi_register, "SDXI");
 
@@ -508,16 +579,34 @@ void sdxi_unregister(struct device *dev)
 {
 	struct sdxi_dev *sdxi = dev_get_drvdata(dev);
 
-	sdxi_error_exit(sdxi);
-	if (sdxi_dev_stop(sdxi))
-		sdxi_dev_force_quiesce(sdxi);
-	sdxi_client_cxts_exit(sdxi);
-	sdxi_keys_exit(sdxi);
-	ida_destroy(&sdxi->vectors);
+	if (!sdxi)
+		return;
+
+	down_write(&sdxi->state_lock);
+	sdxi_chardev_unregister(sdxi);
+	sdxi_device_quiesce(sdxi);
+	sdxi->online = false;
+	up_write(&sdxi->state_lock);
+
+	sdxi_device_exit(sdxi);
+	dev_set_drvdata(dev, NULL);
+	put_device(&sdxi->chardev);
 }
 EXPORT_SYMBOL_NS_GPL(sdxi_unregister, "SDXI");
+
+static int __init sdxi_core_init(void)
+{
+	return sdxi_chardev_init();
+}
+
+static void __exit sdxi_core_exit(void)
+{
+	sdxi_chardev_exit();
+}
 
 MODULE_AUTHOR("Wei Huang");
 MODULE_AUTHOR("Nathan Lynch");
 MODULE_DESCRIPTION("SDXI core");
 MODULE_LICENSE("GPL");
+module_init(sdxi_core_init);
+module_exit(sdxi_core_exit);

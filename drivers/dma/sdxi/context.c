@@ -75,6 +75,7 @@ static void sdxi_free_cxt(struct sdxi_cxt *cxt)
 	mutex_destroy(&cxt->cleanup_lock);
 	kfree(cxt->ring_state);
 	kfree(cxt);
+	put_device(&sdxi->chardev);
 }
 
 DEFINE_FREE(sdxi_cxt, struct sdxi_cxt *, if (_T) sdxi_free_cxt(_T))
@@ -89,6 +90,7 @@ static struct sdxi_cxt *sdxi_alloc_cxt(struct sdxi_dev *sdxi)
 		return NULL;
 
 	cxt->sdxi = sdxi;
+	get_device(&sdxi->chardev);
 	refcount_set(&cxt->refs, 1);
 	mutex_init(&cxt->cleanup_lock);
 	mutex_init(&cxt->akey_lock);
@@ -647,10 +649,9 @@ out:
 	return 0;
 }
 
-static void sdxi_cxt_cleanup_workfn(struct work_struct *work)
+static bool sdxi_cxt_cleanup(struct sdxi_cxt *cxt,
+			     struct sdxi_process **process_out)
 {
-	struct sdxi_cxt *cxt = container_of(to_delayed_work(work),
-					     struct sdxi_cxt, cleanup_work);
 	struct sdxi_process *process = NULL;
 	bool force_release = false;
 	bool destroy = false;
@@ -697,6 +698,25 @@ static void sdxi_cxt_cleanup_workfn(struct work_struct *work)
 
 out_unlock:
 	mutex_unlock(&cxt->cleanup_lock);
+	if (!destroy)
+		return false;
+
+	*process_out = process;
+	return true;
+}
+
+static void sdxi_cxt_cleanup_workfn(struct work_struct *work)
+{
+	struct sdxi_cxt *cxt = container_of(to_delayed_work(work),
+					     struct sdxi_cxt, cleanup_work);
+	struct sdxi_process *process = NULL;
+	struct sdxi_dev *sdxi = cxt->sdxi;
+	bool destroy = false;
+
+	down_read(&sdxi->state_lock);
+	if (sdxi->online)
+		destroy = sdxi_cxt_cleanup(cxt, &process);
+	up_read(&sdxi->state_lock);
 
 	if (destroy)
 		sdxi_cxt_finish_release(cxt, process);
@@ -732,13 +752,6 @@ static void sdxi_cxt_force_exit(struct sdxi_cxt *cxt)
 		sdxi_cxt_finish_release(cxt, process);
 	/* Drop the temporary reference acquired above. */
 	sdxi_cxt_put(cxt);
-}
-
-static void free_admin_cxt(void *ptr)
-{
-	struct sdxi_dev *sdxi = ptr;
-
-	sdxi_cxt_force_exit(sdxi->admin_cxt);
 }
 
 static int sdxi_cxt_doorbell_offset(const struct sdxi_cxt *cxt,
@@ -782,7 +795,18 @@ int sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
 	cxt->started = true;
 	sdxi->admin_cxt = no_free_ptr(cxt);
 
-	return devm_add_action_or_reset(sdxi->dev, free_admin_cxt, sdxi);
+	return 0;
+}
+
+void sdxi_admin_cxt_exit(struct sdxi_dev *sdxi)
+{
+	struct sdxi_cxt *cxt = sdxi->admin_cxt;
+
+	if (!cxt)
+		return;
+
+	sdxi->admin_cxt = NULL;
+	sdxi_cxt_force_exit(cxt);
 }
 
 /*
@@ -1154,27 +1178,33 @@ void sdxi_cxt_release_user_handle(struct sdxi_cxt *cxt)
 
 int sdxi_cxt_notify_mm_release(struct sdxi_cxt *cxt)
 {
+	struct sdxi_dev *sdxi;
 	int ret = 0;
 
 	if (!cxt)
 		return -EINVAL;
+	sdxi = cxt->sdxi;
 
+	down_read(&sdxi->state_lock);
 	mutex_lock(&cxt->cleanup_lock);
 	cxt->mm_dead = true;
 	if (!cxt->resources_released) {
-		ret = sdxi_cxt_quiesce_locked(cxt, 0, NULL, false);
-		if (ret) {
-			dev_err(cxt->sdxi->dev,
-				"failed to quiesce context %u during mm release: %d; quiescing function\n",
-				cxt->id, ret);
-			sdxi_dev_fail(cxt->sdxi);
-			cxt->started = false;
-			cxt->quiesced = true;
-			cxt->quiesce_cst_flags = 0;
+		if (sdxi->online) {
+			ret = sdxi_cxt_quiesce_locked(cxt, 0, NULL, false);
+			if (ret) {
+				dev_err(cxt->sdxi->dev,
+					"failed to quiesce context %u during mm release: %d; quiescing function\n",
+					cxt->id, ret);
+				sdxi_dev_fail(cxt->sdxi);
+				cxt->started = false;
+				cxt->quiesced = true;
+				cxt->quiesce_cst_flags = 0;
+			}
 		}
 		sdxi_cxt_queue_cleanup_locked(cxt, 0);
 	}
 	mutex_unlock(&cxt->cleanup_lock);
+	up_read(&sdxi->state_lock);
 
 	return ret;
 }

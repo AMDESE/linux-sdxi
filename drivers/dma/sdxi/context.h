@@ -89,6 +89,7 @@ struct sdxi_cxt {
 };
 
 int sdxi_admin_cxt_init(struct sdxi_dev *sdxi);
+void sdxi_admin_cxt_exit(struct sdxi_dev *sdxi);
 struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi);
 struct sdxi_cxt *sdxi_ucxt_new(struct sdxi_dev *sdxi, u32 ring_entries,
 			       u64 ds_ring, u64 write_index, u64 cxt_sts,
