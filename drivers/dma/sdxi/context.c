@@ -17,6 +17,7 @@
 #include <linux/errno.h>
 #include <linux/idr.h>
 #include <linux/iommu.h>
+#include <linux/overflow.h>
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <asm/barrier.h>
@@ -81,23 +82,14 @@ static struct sdxi_cxt *sdxi_alloc_cxt(struct sdxi_dev *sdxi)
 
 	cxt->sdxi = sdxi;
 	ida_init(&cxt->akey_ida);
-
-	cxt->ring_state = kzalloc_obj(*cxt->ring_state, GFP_KERNEL);
-	if (!cxt->ring_state)
-		return NULL;
-
-	cxt->sq = sdxi_sq_alloc(sdxi, DEFAULT_DESC_RING_ENTRIES);
-	if (!cxt->sq)
-		return NULL;
-
-	cxt->cst_pool = sdxi_cst_pool_create(sdxi, DEFAULT_DESC_RING_ENTRIES);
-	if (!cxt->cst_pool)
-		return NULL;
+	cxt->pasid = IOMMU_NO_PASID;
+	cxt->opb_000_enb = sdxi->op_grp_cap;
 
 	cxt->akey_table = dma_alloc_coherent(dev, sizeof(*cxt->akey_table),
 					     &cxt->akey_table_dma, GFP_KERNEL);
 	if (!cxt->akey_table)
 		return NULL;
+	memset(cxt->akey_table, 0, sizeof(*cxt->akey_table));
 
 	cxt->cxt_ctl = dma_pool_zalloc(sdxi->cxt_ctl_pool, GFP_KERNEL,
 				       &cxt->cxt_ctl_dma);
@@ -105,6 +97,25 @@ static struct sdxi_cxt *sdxi_alloc_cxt(struct sdxi_dev *sdxi)
 		return NULL;
 
 	return_ptr(cxt);
+}
+
+static int sdxi_alloc_kernel_submission(struct sdxi_cxt *cxt)
+{
+	cxt->ring_state = kzalloc_obj(*cxt->ring_state, GFP_KERNEL);
+	if (!cxt->ring_state)
+		return -ENOMEM;
+
+	cxt->sq = sdxi_sq_alloc(cxt->sdxi, DEFAULT_DESC_RING_ENTRIES);
+	if (!cxt->sq)
+		return -ENOMEM;
+
+	cxt->cst_pool = sdxi_cst_pool_create(cxt->sdxi,
+					     DEFAULT_DESC_RING_ENTRIES);
+	if (!cxt->cst_pool)
+		return -ENOMEM;
+
+	sdxi_ring_state_init(cxt->ring_state, cxt->sq);
+	return 0;
 }
 
 struct sdxi_cxt_ctl_cfg {
@@ -253,9 +264,9 @@ sdxi_get_L1_table(struct sdxi_dev *sdxi, u16 l2_idx)
  * implementation. L1 pages remain allocated until device teardown so a
  * cached L2 pointer can never refer to freed memory.
  */
-static int sdxi_publish_cxt(const struct sdxi_cxt *cxt)
+static int sdxi_publish_cxt(const struct sdxi_cxt *cxt,
+			    const struct sdxi_cxt_ctl_cfg *ctl_cfg)
 {
-	struct sdxi_cxt_ctl_cfg ctl_cfg;
 	struct sdxi_cxt_L1_cfg L1_cfg;
 	struct sdxi_cxt_L1_table *L1_table;
 	struct sdxi_cxt_L1_ent *ent;
@@ -268,16 +279,7 @@ static int sdxi_publish_cxt(const struct sdxi_cxt *cxt)
 		      cxt->id, cxt->sdxi->max_cxtid))
 		return -EINVAL;
 
-	ctl_cfg = (typeof(ctl_cfg)) {
-		.se              = 1,
-		.csa             = 1,
-		.ds_ring_ptr     = sdxi_sq_ring_dma(cxt->sq),
-		.ds_ring_sz      = cxt->sq->count,
-		.cxt_sts_ptr     = sdxi_sq_cxt_sts_dma(cxt->sq),
-		.write_index_ptr = sdxi_sq_write_index_dma(cxt->sq),
-	};
-
-	err = configure_cxt_ctl(cxt->cxt_ctl, &ctl_cfg);
+	err = configure_cxt_ctl(cxt->cxt_ctl, ctl_cfg);
 	if (err)
 		return err;
 
@@ -294,13 +296,13 @@ static int sdxi_publish_cxt(const struct sdxi_cxt *cxt)
 
 	L1_cfg = (typeof(L1_cfg)) {
 		.ka          = 1,
-		.pv          = 0,
+		.pv          = cxt->pasid_valid,
 		.cxt_ctl_ptr = cxt->cxt_ctl_dma,
 		.akey_sz     = akey_table_order(cxt->akey_table),
 		.akey_ptr    = cxt->akey_table_dma,
-		.cxt_pasid   = IOMMU_NO_PASID,
+		.cxt_pasid   = cxt->pasid,
 		.max_buffer  = cxt->sdxi->max_buffer,
-		.opb_000_enb = cxt->sdxi->op_grp_cap,
+		.opb_000_enb = cxt->opb_000_enb,
 	};
 
 	err = configure_L1_entry(ent, &L1_cfg);
@@ -321,23 +323,39 @@ static void free_admin_cxt(void *ptr)
 	sdxi_free_cxt(sdxi->admin_cxt);
 }
 
+static int sdxi_cxt_set_doorbell(struct sdxi_cxt *cxt);
+
 int sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
 {
-	int err;
+	struct sdxi_cxt_ctl_cfg ctl_cfg;
 	struct sdxi_sq *sq;
+	int err;
 
 	struct sdxi_cxt *cxt __free(sdxi_cxt) = sdxi_alloc_cxt(sdxi);
 	if (!cxt)
 		return -ENOMEM;
 
+	err = sdxi_alloc_kernel_submission(cxt);
+	if (err)
+		return err;
+
 	sq = cxt->sq;
 	/* SDXI 1.0 4.1.8.4.b: Set CXT_STS.state to CXTV_RUN. */
 	sq->cxt_sts.state = FIELD_PREP(SDXI_CXT_STS_STATE, CXTV_RUN);
 	cxt->id = SDXI_ADMIN_CXT_ID;
-	cxt->sq->doorbell = sdxi->dbs + cxt->id * sdxi->db_stride;
-	sdxi_ring_state_init(cxt->ring_state, sq);
+	err = sdxi_cxt_set_doorbell(cxt);
+	if (err)
+		return err;
 
-	err = sdxi_publish_cxt(cxt);
+	ctl_cfg = (typeof(ctl_cfg)) {
+		.se              = 1,
+		.csa             = 1,
+		.ds_ring_ptr     = sdxi_sq_ring_dma(cxt->sq),
+		.ds_ring_sz      = cxt->sq->count,
+		.cxt_sts_ptr     = sdxi_sq_cxt_sts_dma(cxt->sq),
+		.write_index_ptr = sdxi_sq_write_index_dma(cxt->sq),
+	};
+	err = sdxi_publish_cxt(cxt, &ctl_cfg);
 	if (err)
 		return err;
 
@@ -382,6 +400,23 @@ static bool sdxi_cxt_id_valid(const struct sdxi_cxt_id *cxt_id)
 	return cxt_id->index > 0;
 }
 
+static int sdxi_cxt_set_doorbell(struct sdxi_cxt *cxt)
+{
+	struct sdxi_dev *sdxi = cxt->sdxi;
+	size_t offset;
+
+	if (check_mul_overflow((size_t)cxt->id, (size_t)sdxi->db_stride,
+			       &offset) ||
+	    offset > sdxi->db_size ||
+	    sdxi->db_stride > sdxi->db_size - offset)
+		return -ERANGE;
+
+	if (WARN_ON_ONCE(!cxt->sq))
+		return -EINVAL;
+	cxt->sq->doorbell = sdxi->dbs + offset;
+	return 0;
+}
+
 /*
  * Transfer the reserved ID to the context and store its pointer in client_cxts.
  * sdxi_free_cxt() releases the ID.
@@ -401,6 +436,9 @@ static void sdxi_cxt_id_assign(struct sdxi_cxt *cxt, struct sdxi_cxt_id *cxt_id)
  */
 struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi)
 {
+	struct sdxi_cxt_ctl_cfg ctl_cfg;
+	int err;
+
 	/*
 	 * Ensure an ID is available before allocating memory for the
 	 * context and its control structures.
@@ -413,13 +451,23 @@ struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi)
 	if (!cxt)
 		return NULL;
 
+	err = sdxi_alloc_kernel_submission(cxt);
+	if (err)
+		return NULL;
+
 	sdxi_cxt_id_assign(cxt, &id);
+	if (sdxi_cxt_set_doorbell(cxt))
+		return NULL;
 
-	cxt->sq->doorbell = sdxi->dbs + cxt->id * sdxi->db_stride;
-
-	sdxi_ring_state_init(cxt->ring_state, cxt->sq);
-
-	if (sdxi_publish_cxt(cxt))
+	ctl_cfg = (typeof(ctl_cfg)) {
+		.se              = 1,
+		.csa             = 1,
+		.ds_ring_ptr     = sdxi_sq_ring_dma(cxt->sq),
+		.ds_ring_sz      = cxt->sq->count,
+		.cxt_sts_ptr     = sdxi_sq_cxt_sts_dma(cxt->sq),
+		.write_index_ptr = sdxi_sq_write_index_dma(cxt->sq),
+	};
+	if (sdxi_publish_cxt(cxt, &ctl_cfg))
 		return NULL;
 
 	return_ptr(cxt);

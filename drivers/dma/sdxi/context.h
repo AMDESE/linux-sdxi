@@ -36,6 +36,9 @@ static inline u8 akey_table_order(const struct sdxi_akey_table *tbl)
 struct sdxi_cxt {
 	struct sdxi_dev *sdxi;
 	u16 id;
+	u32 pasid;
+	u32 opb_000_enb;
+	bool pasid_valid;
 
 	struct sdxi_cxt_ctl *cxt_ctl;
 	dma_addr_t cxt_ctl_dma;

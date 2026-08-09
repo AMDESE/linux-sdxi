@@ -59,6 +59,7 @@ static int sdxi_pci_init(struct sdxi_dev *sdxi)
 	if (IS_ERR(sdxi->dbs))
 		return dev_err_probe(dev, PTR_ERR(sdxi->dbs),
 				     "failed to map doorbell region\n");
+	sdxi->db_size = pci_resource_len(pdev, SDXI_PCI_BAR_DOORBELL);
 
 	/* Mailbox registers are reserved without SR-IOV support. */
 	sdxi->has_mailbox = pdev->is_virtfn ||

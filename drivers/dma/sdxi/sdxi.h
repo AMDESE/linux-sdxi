@@ -74,6 +74,7 @@ struct sdxi_dev {
 	struct device *dev;
 	void __iomem *ctrl_regs;	/* virt addr of ctrl registers */
 	void __iomem *dbs;		/* virt addr of doorbells */
+	size_t db_size;			/* mapped doorbell region size */
 
 	struct sdxi_version sdxi_version;
 
