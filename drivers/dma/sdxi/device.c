@@ -24,6 +24,7 @@
 
 #include "context.h"
 #include "dma.h"
+#include "error.h"
 #include "hw.h"
 #include "keys.h"
 #include "mmio.h"
@@ -413,6 +414,10 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	if (err)
 		return err;
 
+	err = sdxi_error_init(sdxi);
+	if (err)
+		return err;
+
 	/*
 	 * SDXI 1.0 4.1.8.9: Set MMIO_CTL0.fn_gsr to GSRV_ACTIVE and
 	 * wait for MMIO_STS0.fn_gsv to reach GSV_ACTIVE or GSV_ERROR.
@@ -423,8 +428,11 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	 * code starts client contexts.
 	 */
 	err = sdxi_dev_start(sdxi);
-	if (err)
-		sdxi_dev_stop(sdxi);
+	if (err) {
+		sdxi_error_exit(sdxi);
+		if (sdxi_dev_stop(sdxi))
+			sdxi_dev_force_quiesce(sdxi);
+	}
 
 	return err;
 }
@@ -464,6 +472,7 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 	mutex_init(&sdxi->cxt_lock);
 	mutex_init(&sdxi->admin_lock);
 	mutex_init(&sdxi->rkey_lock);
+	sdxi->error_irq = -1;
 	dev_set_drvdata(dev, sdxi);
 
 	err = sdxi->bus_ops->init(sdxi);
@@ -482,6 +491,7 @@ void sdxi_unregister(struct device *dev)
 {
 	struct sdxi_dev *sdxi = dev_get_drvdata(dev);
 
+	sdxi_error_exit(sdxi);
 	if (sdxi_dev_stop(sdxi))
 		sdxi_dev_force_quiesce(sdxi);
 	sdxi_client_cxts_exit(sdxi);

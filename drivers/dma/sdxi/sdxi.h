@@ -98,6 +98,11 @@ struct sdxi_dev {
 	u8 rkey_order;
 	bool rkey_cap;
 
+	/* Error log */
+	int error_irq;
+	struct sdxi_errlog_hd_ent *err_log;
+	dma_addr_t err_log_dma;
+
 	struct dma_pool *cxt_ctl_pool;
 
 	unsigned int nr_vectors;
