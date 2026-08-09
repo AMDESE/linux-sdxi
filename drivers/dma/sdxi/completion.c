@@ -7,8 +7,10 @@
 #include <kunit/visibility.h>
 #include <linux/bitfield.h>
 #include <linux/bitmap.h>
+#include <linux/delay.h>
 #include <linux/dma-mapping.h>
-#include <linux/iopoll.h>
+#include <linux/jiffies.h>
+#include <linux/sched/signal.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/wait.h>
@@ -176,14 +178,35 @@ enum sdxi_completion_state sdxi_cst_blk_check(const struct sdxi_cst_blk *cst)
 
 int sdxi_cst_blk_poll(const struct sdxi_cst_blk *cst)
 {
-	enum sdxi_completion_state state;
-	int ret;
+	return sdxi_cst_blk_wait_timeout(cst, USEC_PER_SEC / USEC_PER_MSEC,
+					 false);
+}
 
-	ret = read_poll_timeout(sdxi_cst_blk_check, state,
-				state != SDXI_COMPLETION_PENDING,
-				10, USEC_PER_SEC, false, cst);
-	if (ret)
-		return ret;		/* -ETIMEDOUT */
+int sdxi_cst_blk_wait_timeout(const struct sdxi_cst_blk *cst,
+			      unsigned int timeout_ms, bool interruptible)
+{
+	unsigned long deadline = 0;
+	enum sdxi_completion_state state;
+
+	if (timeout_ms)
+		deadline = jiffies + msecs_to_jiffies(timeout_ms);
+
+	for (;;) {
+		state = sdxi_cst_blk_check(cst);
+		if (state != SDXI_COMPLETION_PENDING)
+			break;
+		if (interruptible && signal_pending(current))
+			return -ERESTARTSYS;
+		if (timeout_ms && time_after(jiffies, deadline))
+			return -ETIMEDOUT;
+		usleep_range(50, 200);
+	}
 
 	return state == SDXI_COMPLETION_ERROR ? -EIO : 0;
+}
+
+u32 sdxi_cst_blk_flags(const struct sdxi_cst_blk *cst)
+{
+	dma_rmb();
+	return le32_to_cpu(READ_ONCE(cst->flags));
 }

@@ -47,6 +47,10 @@ static inline void sdxi_cst_blk_init(struct sdxi_cst_blk *cst)
 }
 
 int __must_check sdxi_cst_blk_poll(const struct sdxi_cst_blk *cst);
+int __must_check sdxi_cst_blk_wait_timeout(const struct sdxi_cst_blk *cst,
+					   unsigned int timeout_ms,
+					   bool interruptible);
 enum sdxi_completion_state sdxi_cst_blk_check(const struct sdxi_cst_blk *cst);
+u32 sdxi_cst_blk_flags(const struct sdxi_cst_blk *cst);
 
 #endif /* DMA_SDXI_COMPLETION_H */
