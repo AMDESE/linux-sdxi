@@ -22,6 +22,7 @@
 #include <linux/time.h>
 #include <linux/xarray.h>
 
+#include "admin.h"
 #include "context.h"
 #include "dma.h"
 #include "error.h"
@@ -526,6 +527,190 @@ static void sdxi_dev_release(struct device *chardev)
 	kfree(sdxi);
 }
 
+static void sdxi_restore_admin_cxt(struct sdxi_dev *sdxi)
+{
+	struct sdxi_cxt *adm = sdxi->admin_cxt;
+	u64 doorbell;
+
+	if (!adm || !adm->sq)
+		return;
+
+	WRITE_ONCE(adm->sq->cxt_sts.state,
+		   FIELD_PREP(SDXI_CXT_STS_STATE, CXTV_RUN));
+	dma_wmb();
+	doorbell = le64_to_cpu(READ_ONCE(adm->sq->write_index));
+	writeq(doorbell, adm->sq->doorbell);
+}
+
+static int sdxi_restart_contexts(struct sdxi_dev *sdxi)
+{
+	struct sdxi_cxt *entry;
+	unsigned long index;
+	int result = 0;
+
+	xa_for_each(&sdxi->client_cxts, index, entry) {
+		struct sdxi_cxt *cxt;
+		int ret;
+
+		if (!entry)
+			continue;
+		cxt = sdxi_cxt_get_by_id(sdxi, index);
+		if (!cxt)
+			continue;
+
+		mutex_lock(&cxt->cleanup_lock);
+		if (cxt->fatal || cxt->handle_closed || cxt->mm_dead ||
+		    cxt->cleanup_stopping ||
+		    cxt->resources_released || !cxt->started) {
+			mutex_unlock(&cxt->cleanup_lock);
+			sdxi_cxt_put(cxt);
+			continue;
+		}
+
+		ret = sdxi_adm_start_cxt(cxt);
+		mutex_unlock(&cxt->cleanup_lock);
+		if (ret) {
+			dev_err(sdxi->dev, "failed to restart context %u: %d\n",
+				cxt->id, ret);
+			sdxi_cxt_kill(cxt);
+			result = ret;
+		}
+		sdxi_cxt_put(cxt);
+	}
+
+	return result;
+}
+
+static void sdxi_resume_cleanup_contexts(struct sdxi_dev *sdxi)
+{
+	struct sdxi_cxt *entry;
+	unsigned long index;
+
+	xa_for_each(&sdxi->client_cxts, index, entry) {
+		struct sdxi_cxt *cxt;
+
+		if (!entry)
+			continue;
+		cxt = sdxi_cxt_get_by_id(sdxi, index);
+		if (!cxt)
+			continue;
+		sdxi_cxt_resume_cleanup(cxt);
+		sdxi_cxt_put(cxt);
+	}
+}
+
+int sdxi_suspend(struct device *dev)
+{
+	struct sdxi_dev *sdxi = dev_get_drvdata(dev);
+	int ret;
+
+	if (!sdxi)
+		return -ENODEV;
+
+	mutex_lock(&sdxi->pm_lock);
+	if (sdxi->pm_suspended) {
+		ret = 0;
+		goto out_unlock;
+	}
+	down_write(&sdxi->state_lock);
+	if (!sdxi->online) {
+		up_write(&sdxi->state_lock);
+		ret = -EIO;
+		goto out_unlock;
+	}
+	sdxi->online = false;
+
+	mutex_lock(&sdxi->reg_lock);
+	sdxi->pm_ctl0 = sdxi_read64(sdxi, SDXI_MMIO_CTL0);
+	sdxi->pm_ctl2 = sdxi_read64(sdxi, SDXI_MMIO_CTL2);
+	mutex_unlock(&sdxi->reg_lock);
+	sdxi->pm_fn_was_active = sdxi_dev_gsv(sdxi) == SDXI_GSV_ACTIVE;
+
+	sdxi_error_suspend(sdxi);
+	ret = sdxi_dev_stop(sdxi);
+	if (ret) {
+		/* Recovery failed; keep users out and fence DMA. */
+		sdxi_dev_force_quiesce(sdxi);
+	} else {
+		sdxi->pm_suspended = true;
+	}
+	up_write(&sdxi->state_lock);
+
+out_unlock:
+	mutex_unlock(&sdxi->pm_lock);
+	return ret;
+}
+EXPORT_SYMBOL_NS_GPL(sdxi_suspend, "SDXI");
+
+int sdxi_resume(struct device *dev)
+{
+	struct sdxi_dev *sdxi = dev_get_drvdata(dev);
+	u64 cxt_l2;
+	u64 ctl0;
+	bool error_resumed = false;
+	bool make_online = false;
+	bool state_locked = false;
+	int ret = 0;
+
+	if (!sdxi)
+		return -ENODEV;
+
+	mutex_lock(&sdxi->pm_lock);
+	if (!sdxi->pm_suspended)
+		goto out_unlock;
+	down_write(&sdxi->state_lock);
+	state_locked = true;
+
+	ctl0 = sdxi->pm_ctl0;
+	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_GSR, &ctl0, SDXI_GSRV_STOP_SF);
+	mutex_lock(&sdxi->reg_lock);
+	sdxi_write64(sdxi, SDXI_MMIO_CTL0, ctl0);
+	mutex_unlock(&sdxi->reg_lock);
+
+	ret = sdxi_dev_stop(sdxi);
+	if (ret)
+		goto resume_failed;
+
+	mutex_lock(&sdxi->reg_lock);
+	sdxi_write64(sdxi, SDXI_MMIO_CTL2, sdxi->pm_ctl2);
+	mutex_unlock(&sdxi->reg_lock);
+	cxt_l2 = FIELD_PREP(SDXI_MMIO_CXT_L2_PTR,
+			    sdxi->L2_dma >> ilog2(SZ_4K));
+	sdxi_write64(sdxi, SDXI_MMIO_CXT_L2, cxt_l2);
+	sdxi_keys_resume(sdxi);
+	sdxi_error_resume(sdxi);
+	error_resumed = true;
+
+	if (sdxi->pm_fn_was_active) {
+		ret = sdxi_dev_start(sdxi);
+		if (ret)
+			goto resume_failed;
+		sdxi_restore_admin_cxt(sdxi);
+		ret = sdxi_restart_contexts(sdxi);
+		if (ret)
+			goto resume_failed;
+	}
+	sdxi->pm_suspended = false;
+	sdxi->online = true;
+	make_online = true;
+	goto out_unlock;
+
+resume_failed:
+	if (error_resumed)
+		sdxi_error_suspend(sdxi);
+	if (sdxi_dev_stop(sdxi))
+		sdxi_dev_force_quiesce(sdxi);
+
+out_unlock:
+	if (state_locked)
+		up_write(&sdxi->state_lock);
+	mutex_unlock(&sdxi->pm_lock);
+	if (make_online)
+		sdxi_resume_cleanup_contexts(sdxi);
+	return ret;
+}
+EXPORT_SYMBOL_NS_GPL(sdxi_resume, "SDXI");
+
 int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 {
 	struct sdxi_dev *sdxi;
@@ -546,6 +731,7 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 	mutex_init(&sdxi->reg_lock);
 	mutex_init(&sdxi->admin_lock);
 	mutex_init(&sdxi->rkey_lock);
+	mutex_init(&sdxi->pm_lock);
 	sdxi->error_irq = -1;
 	sdxi->minor = -1;
 	dev_set_drvdata(dev, sdxi);

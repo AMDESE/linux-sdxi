@@ -146,6 +146,12 @@ struct sdxi_dev {
 	bool online;
 	struct rw_semaphore state_lock;	/* online state and user operations */
 
+	struct mutex pm_lock;		/* suspend and resume serialization */
+	bool pm_suspended;
+	bool pm_fn_was_active;
+	u64 pm_ctl0;
+	u64 pm_ctl2;
+
 	const struct sdxi_bus_ops *bus_ops;
 };
 
@@ -202,6 +208,8 @@ void sdxi_unregister(struct device *dev);
 bool sdxi_dev_in_error(const struct sdxi_dev *sdxi);
 void sdxi_dev_force_quiesce(struct sdxi_dev *sdxi);
 void sdxi_dev_fail(struct sdxi_dev *sdxi);
+int sdxi_suspend(struct device *dev);
+int sdxi_resume(struct device *dev);
 int sdxi_chardev_init(void);
 void sdxi_chardev_exit(void);
 int sdxi_chardev_register(struct sdxi_dev *sdxi);

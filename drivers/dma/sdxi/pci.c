@@ -221,12 +221,17 @@ static const struct pci_device_id sdxi_id_table[] = {
 };
 MODULE_DEVICE_TABLE(pci, sdxi_id_table);
 
+static const struct dev_pm_ops sdxi_pm_ops = {
+	SYSTEM_SLEEP_PM_OPS(sdxi_suspend, sdxi_resume)
+};
+
 static struct pci_driver sdxi_driver = {
 	.name = "sdxi",
 	.id_table = sdxi_id_table,
 	.probe = sdxi_pci_probe,
 	.remove = sdxi_pci_remove,
 	.sriov_configure = pci_sriov_configure_simple,
+	.driver.pm = pm_sleep_ptr(&sdxi_pm_ops),
 };
 
 MODULE_IMPORT_NS("SDXI");

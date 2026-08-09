@@ -289,6 +289,20 @@ void sdxi_keys_exit(struct sdxi_dev *sdxi)
 	sdxi->rkey_cap = false;
 }
 
+void sdxi_keys_resume(struct sdxi_dev *sdxi)
+{
+	u64 reg;
+
+	if (!sdxi->rkey_cap || !sdxi->rkey_table)
+		return;
+
+	reg = FIELD_PREP(SDXI_MMIO_RKEY_PTR,
+			 sdxi->rkey_table_dma >> ilog2(SZ_4K)) |
+	      FIELD_PREP(SDXI_MMIO_RKEY_SZ, sdxi->rkey_order) |
+	      SDXI_MMIO_RKEY_EN;
+	sdxi_write64(sdxi, SDXI_MMIO_RKEY, reg);
+}
+
 int sdxi_ioctl_get_rkey_list(struct file *file, struct sdxi_file *sf,
 			     void *data)
 {

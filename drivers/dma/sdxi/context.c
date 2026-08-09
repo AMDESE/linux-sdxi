@@ -1245,6 +1245,17 @@ int sdxi_cxt_notify_mm_release(struct sdxi_cxt *cxt)
 	return ret;
 }
 
+void sdxi_cxt_resume_cleanup(struct sdxi_cxt *cxt)
+{
+	if (!cxt)
+		return;
+
+	mutex_lock(&cxt->cleanup_lock);
+	if (sdxi_cxt_is_user(cxt) && sdxi_cxt_cleanup_requested(cxt))
+		sdxi_cxt_queue_cleanup_locked(cxt, 0);
+	mutex_unlock(&cxt->cleanup_lock);
+}
+
 void sdxi_cxt_vma_open(struct sdxi_cxt *cxt)
 {
 	if (!cxt)

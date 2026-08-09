@@ -313,3 +313,59 @@ void sdxi_error_exit(struct sdxi_dev *sdxi)
 	sdxi->err_log = NULL;
 	sdxi->err_log_dma = 0;
 }
+
+void sdxi_error_suspend(struct sdxi_dev *sdxi)
+{
+	u64 reg;
+
+	if (!sdxi->err_log)
+		return;
+
+	disable_irq(sdxi->error_irq);
+	sdxi_write64(sdxi, SDXI_MMIO_ERR_CFG, 0);
+
+	mutex_lock(&sdxi->reg_lock);
+	reg = sdxi_read64(sdxi, SDXI_MMIO_ERR_CTL);
+	FIELD_MODIFY(SDXI_MMIO_ERR_CTL_EN, &reg, 0);
+	sdxi_write64(sdxi, SDXI_MMIO_ERR_CTL, reg);
+
+	reg = sdxi_read64(sdxi, SDXI_MMIO_CTL0);
+	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_ERR_INTR_EN, &reg, 0);
+	sdxi_write64(sdxi, SDXI_MMIO_CTL0, reg);
+	mutex_unlock(&sdxi->reg_lock);
+}
+
+void sdxi_error_resume(struct sdxi_dev *sdxi)
+{
+	unsigned int size_order;
+	u64 reg;
+
+	if (!sdxi->err_log)
+		return;
+
+	sdxi_write64(sdxi, SDXI_MMIO_ERR_CFG, 0);
+	sdxi_write64(sdxi, SDXI_MMIO_ERR_STS,
+		     SDXI_MMIO_ERR_STS_STS_BIT |
+		     SDXI_MMIO_ERR_STS_OVF_BIT |
+		     SDXI_MMIO_ERR_STS_ERR_BIT);
+	sdxi_write64(sdxi, SDXI_MMIO_ERR_WRT, 0);
+	sdxi_write64(sdxi, SDXI_MMIO_ERR_RD, 0);
+
+	mutex_lock(&sdxi->reg_lock);
+	reg = sdxi_read64(sdxi, SDXI_MMIO_ERR_CTL);
+	FIELD_MODIFY(SDXI_MMIO_ERR_CTL_EN, &reg, 1);
+	sdxi_write64(sdxi, SDXI_MMIO_ERR_CTL, reg);
+
+	reg = sdxi_read64(sdxi, SDXI_MMIO_CTL0);
+	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_ERR_INTR_EN, &reg, 1);
+	sdxi_write64(sdxi, SDXI_MMIO_CTL0, reg);
+	mutex_unlock(&sdxi->reg_lock);
+
+	size_order = ilog2(SDXI_ERRLOG_SIZE) - ilog2(SZ_4K);
+	reg = FIELD_PREP(SDXI_MMIO_ERR_CFG_PTR,
+			 sdxi->err_log_dma >> ilog2(SZ_4K)) |
+	      FIELD_PREP(SDXI_MMIO_ERR_CFG_SZ, size_order) |
+	      SDXI_MMIO_ERR_CFG_EN;
+	sdxi_write64(sdxi, SDXI_MMIO_ERR_CFG, reg);
+	enable_irq(sdxi->error_irq);
+}
