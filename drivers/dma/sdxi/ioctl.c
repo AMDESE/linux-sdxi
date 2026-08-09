@@ -25,6 +25,7 @@
 #include <linux/sizes.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
+#include <linux/uuid.h>
 #include <uapi/linux/sdxi.h>
 
 #include "admin.h"
@@ -99,7 +100,8 @@ static int sdxi_ioctl_get_uapi_info(struct file *file, struct sdxi_file *sf,
 			SDXI_UAPI_CAP_RKEY_MGMT |
 			SDXI_UAPI_CAP_CXT_CREATE |
 			SDXI_UAPI_CAP_CXT_EVENTFD |
-			SDXI_UAPI_CAP_AKEY_MGMT,
+			SDXI_UAPI_CAP_AKEY_MGMT |
+			SDXI_UAPI_CAP_ADMIN_DISC,
 		},
 	};
 
@@ -321,22 +323,134 @@ static bool sdxi_u32_array_zero(const u32 *values, size_t count)
 	return true;
 }
 
+enum sdxi_op_group_policy {
+	SDXI_OP_GROUP_UNKNOWN,
+	SDXI_OP_GROUP_USER,
+	SDXI_OP_GROUP_ADMIN_ONLY,
+};
+
+struct sdxi_op_group_policy_entry {
+	guid_t guid;
+	enum sdxi_op_group_policy policy;
+};
+
+static const struct sdxi_op_group_policy_entry sdxi_op_group_policy[] = {
+	{ GUID_INIT(0x193259fe, 0x150b, 0x4008, 0xa8, 0x3f, 0x6f, 0xaf, 0x59,
+		    0xf5, 0x27, 0x2a), SDXI_OP_GROUP_USER },
+	{ GUID_INIT(0xd9bc29a1, 0x91dc, 0x4243, 0x97, 0x51, 0xb6, 0xb0, 0x32,
+		    0x9d, 0xaf, 0xe1), SDXI_OP_GROUP_USER },
+	{ GUID_INIT(0x3ac7630e, 0x7009, 0x424b, 0x82, 0x99, 0x20, 0xe2, 0x90,
+		    0x1e, 0xcc, 0x5e), SDXI_OP_GROUP_USER },
+	{ GUID_INIT(0x7fb16347, 0x4c3a, 0x4d16, 0x84, 0x42, 0xcb, 0xa5, 0x1e,
+		    0x34, 0x08, 0x80), SDXI_OP_GROUP_USER },
+	{ GUID_INIT(0x0af23293, 0x7595, 0x4939, 0xb0, 0x8a, 0x1c, 0x72, 0x93,
+		    0xc2, 0xe9, 0x75), SDXI_OP_GROUP_USER },
+	{ GUID_INIT(0x989b9a64, 0x28d9, 0x4294, 0x9c, 0x7b, 0x9a, 0x3f, 0x27,
+		    0xaf, 0xaf, 0x5c), SDXI_OP_GROUP_USER },
+	{ GUID_INIT(0x15114db9, 0x4a7e, 0x47ab, 0x97, 0xdd, 0xea, 0x86, 0xed,
+		    0xa1, 0x0b, 0x6e), SDXI_OP_GROUP_USER },
+	{ GUID_INIT(0xb3e551a3, 0xf1a9, 0x4c9a, 0x82, 0x52, 0xda, 0xf5, 0xc0,
+		    0xd9, 0x1a, 0x44), SDXI_OP_GROUP_USER },
+	{ GUID_INIT(0x2595c4dc, 0x6fac, 0x49d2, 0xa3, 0x31, 0xb1, 0x40, 0x0a,
+		    0x7f, 0x69, 0x0f), SDXI_OP_GROUP_USER },
+	{ GUID_INIT(0xf5b7610b, 0x0dc6, 0x4c03, 0xab, 0x79, 0x65, 0xf1, 0xf4,
+		    0xef, 0xcf, 0x4c), SDXI_OP_GROUP_ADMIN_ONLY },
+};
+
+static enum sdxi_op_group_policy
+sdxi_op_group_lookup(const guid_t *guid)
+{
+	size_t i;
+
+	if (guid_is_null(guid))
+		return SDXI_OP_GROUP_UNKNOWN;
+
+	for (i = 0; i < ARRAY_SIZE(sdxi_op_group_policy); i++)
+		if (guid_equal(guid, &sdxi_op_group_policy[i].guid))
+			return sdxi_op_group_policy[i].policy;
+
+	return SDXI_OP_GROUP_UNKNOWN;
+}
+
+#define SDXI_DISC_TIMEOUT_MS	5000U
+
+static int sdxi_discover_user_op_groups(struct sdxi_dev *sdxi, u32 available,
+					u32 *allowed, u32 *denied)
+{
+	const u16 first = 1;
+	const u16 last = 31;
+	const size_t record_size = sizeof(guid_t);
+	const size_t size = (last - first + 1) * record_size;
+	dma_addr_t dma;
+	u8 *records;
+	u16 index;
+	int ret;
+
+	if (!sdxi_dev_compatible(sdxi, SDXI_VERSION_1_1) ||
+	    !(available & SDXI_OPB_000_DISC_MASK))
+		return 0;
+
+	records = dma_alloc_coherent(sdxi->dev, size, &dma, GFP_KERNEL);
+	if (!records)
+		return -ENOMEM;
+
+	ret = sdxi_adm_disc(sdxi, first, last, dma, SDXI_DISC_TIMEOUT_MS,
+			    NULL);
+	if (ret)
+		goto free_records;
+
+	dma_rmb();
+	for (index = first; index <= last; index++) {
+		enum sdxi_op_group_policy policy;
+		guid_t guid;
+		u32 bit = BIT(index);
+
+		if (!(available & bit))
+			continue;
+
+		import_guid(&guid, records + (index - first) * record_size);
+		policy = sdxi_op_group_lookup(&guid);
+		if (policy == SDXI_OP_GROUP_USER)
+			*allowed |= bit;
+		else if (policy == SDXI_OP_GROUP_ADMIN_ONLY)
+			*denied |= bit;
+	}
+
+free_records:
+	dma_free_coherent(sdxi->dev, size, records, dma);
+	return ret;
+}
+
 static int sdxi_user_op_groups(struct sdxi_dev *sdxi, u32 requested,
 			       u32 *applied)
 {
 	u32 available;
 	u32 allowed;
+	u32 denied = SDXI_OPB_000_ADMIN;
+	bool use_default = !requested;
+	int ret;
 
 	available = FIELD_GET(SDXI_MMIO_CTL2_OPB_000_AVL,
 			      sdxi_read64(sdxi, SDXI_MMIO_CTL2));
 	allowed = available & SDXI_OPB_000_INTR;
+	if (sdxi->atomic_ops_enabled)
+		allowed |= available & SDXI_OPB_000_ATOMIC;
 
-	if (!requested)
+	ret = sdxi_discover_user_op_groups(sdxi, available, &allowed,
+					   &denied);
+	if (ret && !use_default &&
+	    (requested & SDXI_OPB_000_DISC_MASK))
+		return ret;
+
+	if (use_default)
 		requested = allowed;
-	if (requested & SDXI_OPB_000_ADMIN)
+	if (requested & denied)
 		return -EPERM;
 	if (requested & ~available)
 		return -EINVAL;
+	if ((requested & SDXI_OPB_000_ATOMIC) &&
+	    !sdxi->atomic_ops_enabled)
+		return -EOPNOTSUPP;
 	if (requested & ~allowed)
 		return -EOPNOTSUPP;
 
@@ -552,6 +666,61 @@ static int sdxi_ioctl_quiesce_cxt(struct file *file, struct sdxi_file *sf,
 	return ret;
 }
 
+static int sdxi_ioctl_admin_disc(struct file *file, struct sdxi_file *sf,
+				 void *data)
+{
+	struct sdxi_admin_disc_args *args = data;
+	size_t required;
+	dma_addr_t dma;
+	void *buffer;
+	u16 start;
+	u16 end;
+	u32 timeout_ms;
+	int ret;
+
+	if (args->argsz < sizeof(*args) || args->flags ||
+	    !sdxi_u32_array_zero(args->rsvd0, ARRAY_SIZE(args->rsvd0)))
+		return -EINVAL;
+	if (!sdxi_dev_compatible(sf->process->sdxi, SDXI_VERSION_1_1))
+		return -EOPNOTSUPP;
+
+	start = args->index.start;
+	end = args->index.end;
+	if (start > end || end > 2047)
+		return -EINVAL;
+
+	required = (size_t)(end - start + 1) * sizeof(guid_t);
+	args->argsz = sizeof(*args);
+	args->cst_flags = 0;
+	if (args->buf_size < required) {
+		args->buf_size = required;
+		return -ENOSPC;
+	}
+	if (!args->buf_uptr)
+		return -EINVAL;
+
+	buffer = dma_alloc_coherent(sf->process->sdxi->dev, required, &dma,
+				    GFP_KERNEL);
+	if (!buffer)
+		return -ENOMEM;
+
+	timeout_ms = args->timeout_ms ?: SDXI_DISC_TIMEOUT_MS;
+	if (!capable(CAP_SYS_ADMIN))
+		timeout_ms = min(timeout_ms, SDXI_DISC_TIMEOUT_MS);
+	ret = sdxi_adm_disc(sf->process->sdxi, start, end, dma,
+			    timeout_ms, &args->cst_flags);
+	if (!ret) {
+		dma_rmb();
+		if (copy_to_user(u64_to_user_ptr(args->buf_uptr), buffer,
+				 required))
+			ret = -EFAULT;
+	}
+
+	dma_free_coherent(sf->process->sdxi->dev, required, buffer, dma);
+	args->buf_size = required;
+	return ret;
+}
+
 #define SDXI_IOCTL_DEF(_nr, _cmd, _func, _files, _access)	\
 	[_nr] = {						\
 		.cmd = (_cmd),					\
@@ -588,7 +757,7 @@ static const struct sdxi_ioctl_desc sdxi_ioctls[] = {
 		       SDXI_IOCTL_F_CONTEXT, SDXI_IOCTL_A_CONTEXT_OWNER),
 	SDXI_IOCTL_DEF(0x0c, SDXI_SET_AKEYS, sdxi_ioctl_set_akeys,
 		       SDXI_IOCTL_F_CONTEXT, SDXI_IOCTL_A_CONTEXT_OWNER),
-	SDXI_IOCTL_DEF(0x0d, SDXI_ADMIN_DISC, sdxi_ioctl_unsupported,
+	SDXI_IOCTL_DEF(0x0d, SDXI_ADMIN_DISC, sdxi_ioctl_admin_disc,
 		       SDXI_IOCTL_F_DEVICE, SDXI_IOCTL_A_PUBLIC_DEVICE),
 	SDXI_IOCTL_DEF(0x0e, SDXI_ADMIN_VENDOR, sdxi_ioctl_unsupported,
 		       SDXI_IOCTL_F_DEVICE, SDXI_IOCTL_A_VENDOR_HANDLER),

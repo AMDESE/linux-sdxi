@@ -135,6 +135,7 @@ struct sdxi_dev {
 	struct cdev cdev;
 	struct device chardev;
 	int minor;
+	bool atomic_ops_enabled;
 	bool online;
 	struct rw_semaphore state_lock;	/* online state and user operations */
 

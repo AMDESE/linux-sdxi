@@ -14,6 +14,7 @@
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/overflow.h>
+#include <linux/pci-ats.h>
 #include <linux/pci.h>
 
 #include "context.h"
@@ -67,6 +68,17 @@ static int sdxi_pci_init(struct sdxi_dev *sdxi)
 	/* Mailbox registers are reserved without SR-IOV support. */
 	sdxi->has_mailbox = pdev->is_virtfn ||
 		pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_SRIOV);
+
+	/*
+	 * PCIe defines AtomicOp Requester Enable as a PF-owned control that
+	 * also applies to its VFs. Configure the physical function so VF
+	 * contexts inherit the transport capability correctly.
+	 */
+	ret = pci_enable_atomic_ops_to_root(pci_physfn(pdev),
+					    PCI_EXP_DEVCAP2_ATOMIC_COMP32 |
+					    PCI_EXP_DEVCAP2_ATOMIC_COMP64);
+	if (!ret)
+		sdxi->atomic_ops_enabled = true;
 
 	/*
 	 * Allocate the minimum required set of vectors plus one for
