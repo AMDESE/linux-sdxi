@@ -17,6 +17,7 @@
 #include <linux/xarray.h>
 
 #include "mmio.h"
+#include "version.h"
 
 #define ID_TO_L1_INDEX(id)	((id) & 0x7F)
 
@@ -66,6 +67,8 @@ struct sdxi_dev {
 	void __iomem *ctrl_regs;	/* virt addr of ctrl registers */
 	void __iomem *dbs;		/* virt addr of doorbells */
 
+	struct sdxi_version sdxi_version;
+
 	/* hardware capabilities (from cap0 & cap1) */
 	u32 db_stride;			/* doorbell stride in bytes */
 	u16 max_cxtid;			/* Maximum context ID allowed. */
@@ -89,6 +92,12 @@ struct sdxi_dev {
 
 	const struct sdxi_bus_ops *bus_ops;
 };
+
+static inline bool sdxi_dev_compatible(const struct sdxi_dev *sdxi,
+				       struct sdxi_version version)
+{
+	return sdxi_version_ge(sdxi->sdxi_version, version);
+}
 
 /**
  * sdxi_alloc_vector() - Allocate an interrupt vector.
