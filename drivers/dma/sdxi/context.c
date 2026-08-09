@@ -1119,6 +1119,27 @@ void sdxi_cxt_kill(struct sdxi_cxt *cxt)
 	wake_up_poll(&cxt->poll_wq, EPOLLERR);
 }
 
+void sdxi_cxt_kill_stopped(struct sdxi_cxt *cxt)
+{
+	bool newly_fatal;
+
+	if (!cxt)
+		return;
+
+	mutex_lock(&cxt->cleanup_lock);
+	newly_fatal = !cxt->fatal;
+	cxt->fatal = true;
+	cxt->started = false;
+	cxt->quiesced = true;
+	cxt->quiesce_cst_flags = 0;
+	if (sdxi_cxt_is_user(cxt))
+		sdxi_cxt_queue_cleanup_locked(cxt, 0);
+	mutex_unlock(&cxt->cleanup_lock);
+
+	if (newly_fatal)
+		wake_up_poll(&cxt->poll_wq, EPOLLERR);
+}
+
 void sdxi_cxt_release_user_handle(struct sdxi_cxt *cxt)
 {
 	if (!cxt)

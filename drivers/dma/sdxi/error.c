@@ -14,6 +14,7 @@
 #include <linux/sizes.h>
 #include <linux/string.h>
 
+#include "context.h"
 #include "error.h"
 #include "hw.h"
 #include "mmio.h"
@@ -59,6 +60,11 @@ static const struct packed_field_u16 sdxi_errlog_fields[] = {
 
 enum {
 	SDXI_PACKING_QUIRKS = QUIRK_LITTLE_ENDIAN | QUIRK_LSW32_IS_FIRST,
+};
+
+enum sdxi_errlog_reaction {
+	SDXI_ERRLOG_REACTION_CXT_STOP = 1,
+	SDXI_ERRLOG_REACTION_FN_STOP = 2,
 };
 
 static const char *const sdxi_err_steps[] = {
@@ -124,6 +130,44 @@ static void sdxi_errlog_report(struct sdxi_dev *sdxi, u64 read_index,
 		dev_err(sdxi->dev, "  buffer=%u\n", entry->buf);
 }
 
+static bool sdxi_errlog_handle_reaction(struct sdxi_dev *sdxi,
+					const struct sdxi_errlog_entry *entry)
+{
+	struct sdxi_cxt *cxt;
+
+	if (entry->reaction == SDXI_ERRLOG_REACTION_FN_STOP)
+		return true;
+	if (entry->reaction != SDXI_ERRLOG_REACTION_CXT_STOP ||
+	    !entry->cv || !entry->cxt_num)
+		return false;
+
+	cxt = sdxi_cxt_get_by_id(sdxi, entry->cxt_num);
+	if (!cxt)
+		return false;
+
+	if (sdxi_cxt_is_user(cxt))
+		sdxi_cxt_kill_stopped(cxt);
+	sdxi_cxt_put(cxt);
+	return false;
+}
+
+static void sdxi_error_handle_function(struct sdxi_dev *sdxi)
+{
+	struct sdxi_cxt *cxt;
+	u32 cxt_id;
+
+	dev_err(sdxi->dev, "function stopped after hardware error\n");
+	sdxi_dev_fail(sdxi);
+
+	for (cxt_id = 1; cxt_id <= sdxi->max_cxtid; cxt_id++) {
+		cxt = sdxi_cxt_get_by_id(sdxi, cxt_id);
+		if (!cxt)
+			continue;
+		sdxi_cxt_kill_stopped(cxt);
+		sdxi_cxt_put(cxt);
+	}
+}
+
 static irqreturn_t sdxi_error_irq_thread(int irq, void *data)
 {
 	struct sdxi_dev *sdxi = data;
@@ -134,10 +178,16 @@ static irqreturn_t sdxi_error_irq_thread(int irq, void *data)
 	u64 read_index;
 	u64 status;
 	u64 count;
+	bool function_stopped;
 
 	status = sdxi_read64(sdxi, SDXI_MMIO_ERR_STS);
-	if (!(status & ack_mask))
-		return IRQ_NONE;
+	function_stopped = sdxi_dev_in_error(sdxi);
+	if (!(status & ack_mask)) {
+		if (!function_stopped)
+			return IRQ_NONE;
+		sdxi_error_handle_function(sdxi);
+		return IRQ_HANDLED;
+	}
 
 	if (status & SDXI_MMIO_ERR_STS_ERR_BIT)
 		dev_err(sdxi->dev, "hardware could not write the error log\n");
@@ -145,6 +195,8 @@ static irqreturn_t sdxi_error_irq_thread(int irq, void *data)
 		dev_err(sdxi->dev, "error log overflowed\n");
 	if (!(status & SDXI_MMIO_ERR_STS_STS_BIT)) {
 		sdxi_write64(sdxi, SDXI_MMIO_ERR_STS, status & ack_mask);
+		if (function_stopped)
+			sdxi_error_handle_function(sdxi);
 		return IRQ_HANDLED;
 	}
 
@@ -170,12 +222,17 @@ static irqreturn_t sdxi_error_irq_thread(int irq, void *data)
 		size_t index = read_index % SDXI_ERRLOG_ENTRIES;
 
 		memcpy(&raw, &sdxi->err_log[index], sizeof(raw));
-		if (sdxi_errlog_decode(sdxi, &raw, &entry))
+		if (sdxi_errlog_decode(sdxi, &raw, &entry)) {
 			sdxi_errlog_report(sdxi, read_index, &entry);
+			function_stopped |=
+				sdxi_errlog_handle_reaction(sdxi, &entry);
+		}
 		read_index++;
 	}
 
 	sdxi_write64(sdxi, SDXI_MMIO_ERR_RD, read_index);
+	if (function_stopped)
+		sdxi_error_handle_function(sdxi);
 	return IRQ_HANDLED;
 }
 
@@ -214,6 +271,10 @@ int sdxi_error_init(struct sdxi_dev *sdxi)
 	FIELD_MODIFY(SDXI_MMIO_ERR_CTL_EN, &reg, 1);
 	sdxi_write64(sdxi, SDXI_MMIO_ERR_CTL, reg);
 
+	reg = sdxi_read64(sdxi, SDXI_MMIO_CTL0);
+	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_ERR_INTR_EN, &reg, 1);
+	sdxi_write64(sdxi, SDXI_MMIO_CTL0, reg);
+
 	size_order = ilog2(SDXI_ERRLOG_SIZE) - ilog2(SZ_4K);
 	reg = FIELD_PREP(SDXI_MMIO_ERR_CFG_PTR,
 			 sdxi->err_log_dma >> ilog2(SZ_4K)) |
@@ -236,6 +297,10 @@ void sdxi_error_exit(struct sdxi_dev *sdxi)
 	reg = sdxi_read64(sdxi, SDXI_MMIO_ERR_CTL);
 	FIELD_MODIFY(SDXI_MMIO_ERR_CTL_EN, &reg, 0);
 	sdxi_write64(sdxi, SDXI_MMIO_ERR_CTL, reg);
+
+	reg = sdxi_read64(sdxi, SDXI_MMIO_CTL0);
+	FIELD_MODIFY(SDXI_MMIO_CTL0_FN_ERR_INTR_EN, &reg, 0);
+	sdxi_write64(sdxi, SDXI_MMIO_CTL0, reg);
 
 	if (sdxi->error_irq >= 0)
 		devm_free_irq(sdxi->dev, sdxi->error_irq, sdxi);

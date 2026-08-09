@@ -108,6 +108,7 @@ int sdxi_cxt_quiesce(struct sdxi_cxt *cxt, unsigned int timeout_ms,
 bool sdxi_cxt_is_user(const struct sdxi_cxt *cxt);
 bool sdxi_cxt_is_fatal(const struct sdxi_cxt *cxt);
 void sdxi_cxt_kill(struct sdxi_cxt *cxt);
+void sdxi_cxt_kill_stopped(struct sdxi_cxt *cxt);
 void sdxi_cxt_release_user_handle(struct sdxi_cxt *cxt);
 int sdxi_cxt_notify_mm_release(struct sdxi_cxt *cxt);
 void sdxi_cxt_vma_open(struct sdxi_cxt *cxt);

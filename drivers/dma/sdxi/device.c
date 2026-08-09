@@ -96,6 +96,11 @@ static enum sdxi_fn_gsv sdxi_dev_gsv(const struct sdxi_dev *sdxi)
 	return gsv;
 }
 
+bool sdxi_dev_in_error(const struct sdxi_dev *sdxi)
+{
+	return sdxi_dev_gsv(sdxi) == SDXI_GSV_ERROR;
+}
+
 static const unsigned long gsv_poll_interval_us = USEC_PER_MSEC * 100;
 static const unsigned long gsv_transition_timeout_us = USEC_PER_SEC * 1;
 
