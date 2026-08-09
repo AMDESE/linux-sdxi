@@ -20,5 +20,9 @@ int sdxi_ioctl_get_rkey_list(struct file *file, struct sdxi_file *sf,
 			     void *data);
 int sdxi_ioctl_get_rkeys(struct file *file, struct sdxi_file *sf, void *data);
 int sdxi_ioctl_set_rkeys(struct file *file, struct sdxi_file *sf, void *data);
+int sdxi_ioctl_get_akey_list(struct file *file, struct sdxi_file *sf,
+			     void *data);
+int sdxi_ioctl_get_akeys(struct file *file, struct sdxi_file *sf, void *data);
+int sdxi_ioctl_set_akeys(struct file *file, struct sdxi_file *sf, void *data);
 
 #endif /* DMA_SDXI_KEYS_H */

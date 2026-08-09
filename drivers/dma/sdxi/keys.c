@@ -6,6 +6,7 @@
  */
 
 #include <linux/bitfield.h>
+#include <linux/capability.h>
 #include <linux/dma-mapping.h>
 #include <linux/kernel.h>
 #include <linux/log2.h>
@@ -14,7 +15,9 @@
 #include <uapi/linux/sdxi.h>
 
 #include "admin.h"
+#include "context.h"
 #include "hw.h"
+#include "intr.h"
 #include "ioctl.h"
 #include "keys.h"
 #include "mmio.h"
@@ -156,6 +159,87 @@ static void sdxi_rkey_store(struct sdxi_rkey_ent *destination,
 	u16 intr_num = le16_to_cpu(source->intr_num);
 
 	entry.intr_num = cpu_to_le16(intr_num & ~SDXI_RKEY_ENT_VL);
+	WRITE_ONCE(destination->intr_num, 0);
+	dma_wmb();
+	memcpy(destination, &entry, sizeof(entry));
+	dma_wmb();
+	WRITE_ONCE(destination->intr_num, source->intr_num);
+}
+
+static int sdxi_akey_validate(const struct sdxi_akey_ent *entry)
+{
+	u16 intr_num = le16_to_cpu(entry->intr_num);
+	u32 pasid = le32_to_cpu(entry->pasid);
+
+	if (intr_num & BIT(15))
+		return -EINVAL;
+	if (pasid & ~(SDXI_AKEY_ENT_PASID | SDXI_AKEY_ENT_PR |
+		      SDXI_AKEY_ENT_PH))
+		return -EINVAL;
+	if (memchr_inv(entry->rsvd_0, 0, sizeof(entry->rsvd_0)) ||
+	    memchr_inv(entry->rsvd_1, 0, sizeof(entry->rsvd_1)))
+		return -EINVAL;
+
+	return 0;
+}
+
+static int sdxi_akey_validate_user(const struct sdxi_cxt *cxt,
+				   const struct sdxi_akey_ent *entry)
+{
+	u16 intr_num = le16_to_cpu(entry->intr_num);
+	u32 pasid = le32_to_cpu(entry->pasid);
+
+	if (!(intr_num & SDXI_AKEY_ENT_VL)) {
+		if (intr_num || entry->tgt_sfunc || pasid || entry->stag ||
+		    entry->rkey)
+			return -EINVAL;
+		return 0;
+	}
+
+	if (entry->tgt_sfunc || !(intr_num & SDXI_AKEY_ENT_PV) ||
+	    intr_num & SDXI_AKEY_ENT_STE)
+		return -EPERM;
+	if (FIELD_GET(SDXI_AKEY_ENT_PASID, pasid) != cxt->pasid ||
+	    pasid & (SDXI_AKEY_ENT_PR | SDXI_AKEY_ENT_PH))
+		return -EPERM;
+	if (entry->stag || entry->rkey)
+		return -EPERM;
+	if (!(intr_num & SDXI_AKEY_ENT_IV) &&
+	    FIELD_GET(SDXI_AKEY_ENT_INTR_NUM, intr_num))
+		return -EINVAL;
+
+	return 0;
+}
+
+static bool sdxi_akey_driver_owned(const struct sdxi_cxt *cxt, u32 index)
+{
+	u16 intr_akey = READ_ONCE(cxt->intr_akey);
+
+	return index < 2 || (intr_akey && index == intr_akey);
+}
+
+static int sdxi_akey_validate_interrupt(const struct sdxi_cxt *cxt,
+					const struct sdxi_akey_ent *entry)
+{
+	u16 intr_num = le16_to_cpu(entry->intr_num);
+
+	if (!(intr_num & SDXI_AKEY_ENT_IV))
+		return 0;
+	if (!sdxi_cxt_has_intr_fd(cxt))
+		return -ENOTCONN;
+	if (FIELD_GET(SDXI_AKEY_ENT_INTR_NUM, intr_num) != cxt->intr_vector)
+		return -EINVAL;
+
+	return 0;
+}
+
+static void sdxi_akey_store(struct sdxi_akey_ent *destination,
+			    const struct sdxi_akey_ent *source)
+{
+	struct sdxi_akey_ent entry = *source;
+	u16 intr_num = le16_to_cpu(source->intr_num);
+
+	entry.intr_num = cpu_to_le16(intr_num & ~SDXI_AKEY_ENT_VL);
 	WRITE_ONCE(destination->intr_num, 0);
 	dma_wmb();
 	memcpy(destination, &entry, sizeof(entry));
@@ -325,5 +409,155 @@ int sdxi_ioctl_set_rkeys(struct file *file, struct sdxi_file *sf, void *data)
 	args->commit_state = SDXI_KEY_COMMIT_ALL;
 out_unlock:
 	mutex_unlock(&sdxi->rkey_lock);
+	return ret;
+}
+
+int sdxi_ioctl_get_akey_list(struct file *file, struct sdxi_file *sf,
+			     void *data)
+{
+	struct sdxi_key_list_args *args = data;
+	struct sdxi_cxt *cxt = sf->cxt;
+	int ret;
+
+	ret = sdxi_key_args_check(args->argsz, sizeof(*args), args->flags,
+				  &args->rsvd0, 1);
+	if (ret)
+		return ret;
+	if (!cxt || sdxi_cxt_is_fatal(cxt))
+		return -ENODEV;
+
+	mutex_lock(&cxt->akey_lock);
+	if (!cxt->akey_table) {
+		ret = -ENODEV;
+		goto out_unlock;
+	}
+	ret = sdxi_key_list_fill(args, cxt->akey_table,
+				 ARRAY_SIZE(cxt->akey_table->entry),
+				 sizeof(cxt->akey_table->entry[0]));
+out_unlock:
+	mutex_unlock(&cxt->akey_lock);
+	return ret;
+}
+
+int sdxi_ioctl_get_akeys(struct file *file, struct sdxi_file *sf, void *data)
+{
+	struct sdxi_get_keys_args *args = data;
+	struct sdxi_cxt *cxt = sf->cxt;
+	u32 entries;
+	u32 i;
+	int ret;
+
+	ret = sdxi_key_args_check(args->argsz, sizeof(*args), args->flags,
+				  &args->rsvd0, 1);
+	if (ret)
+		return ret;
+	if (!cxt || sdxi_cxt_is_fatal(cxt))
+		return -ENODEV;
+
+	entries = ARRAY_SIZE(cxt->akey_table->entry);
+	if (args->nkeys > entries)
+		return -EINVAL;
+	ret = sdxi_key_check_indices(args->entries, args->nkeys, entries,
+				     NULL, NULL);
+	if (ret)
+		return ret;
+
+	args->argsz = sizeof(*args);
+	mutex_lock(&cxt->akey_lock);
+	if (!cxt->akey_table) {
+		ret = -ENODEV;
+		goto out_unlock;
+	}
+	for (i = 0; i < args->nkeys; i++)
+		memcpy(args->entries[i].data,
+		       &cxt->akey_table->entry[args->entries[i].index],
+		       sizeof(args->entries[i].data));
+	ret = 0;
+out_unlock:
+	mutex_unlock(&cxt->akey_lock);
+	return ret;
+}
+
+int sdxi_ioctl_set_akeys(struct file *file, struct sdxi_file *sf, void *data)
+{
+	struct sdxi_set_keys_args *args = data;
+	struct sdxi_cxt *cxt = sf->cxt;
+	u32 entries;
+	u16 first;
+	u16 last;
+	u32 i;
+	int ret;
+
+	ret = sdxi_key_args_check(args->argsz, sizeof(*args), args->flags,
+				  args->rsvd0, ARRAY_SIZE(args->rsvd0));
+	if (ret)
+		return ret;
+
+	args->argsz = sizeof(*args);
+	sdxi_set_keys_init(args);
+
+	if (!cxt || sdxi_cxt_is_fatal(cxt))
+		return -ENODEV;
+	entries = ARRAY_SIZE(cxt->akey_table->entry);
+	if (!args->nkeys) {
+		args->commit_state = SDXI_KEY_COMMIT_ALL;
+		return 0;
+	}
+	if (args->nkeys > entries)
+		return -EINVAL;
+
+	ret = sdxi_key_check_indices(args->entries, args->nkeys, entries,
+				     &first, &last);
+	if (ret)
+		return ret;
+
+	mutex_lock(&cxt->akey_lock);
+	if (!cxt->akey_table) {
+		ret = -ENODEV;
+		goto out_unlock;
+	}
+
+	for (i = 0; i < args->nkeys; i++) {
+		struct sdxi_akey_ent entry;
+
+		if (sdxi_akey_driver_owned(cxt, args->entries[i].index)) {
+			ret = -EPERM;
+			goto out_unlock;
+		}
+
+		memcpy(&entry, args->entries[i].data, sizeof(entry));
+		ret = sdxi_akey_validate(&entry);
+		if (ret)
+			goto out_unlock;
+		if (!capable(CAP_SYS_ADMIN)) {
+			ret = sdxi_akey_validate_user(cxt, &entry);
+			if (ret)
+				goto out_unlock;
+		}
+		ret = sdxi_akey_validate_interrupt(cxt, &entry);
+		if (ret)
+			goto out_unlock;
+	}
+
+	for (i = 0; i < args->nkeys; i++) {
+		struct sdxi_akey_ent entry;
+
+		memcpy(&entry, args->entries[i].data, sizeof(entry));
+		sdxi_akey_store(&cxt->akey_table->entry[args->entries[i].index],
+				&entry);
+	}
+	dma_wmb();
+
+	ret = sdxi_adm_akey_update_sync(cxt->sdxi, cxt->id, cxt->id,
+					first, last,
+					sdxi_set_keys_timeout(args), NULL);
+	if (ret) {
+		args->commit_state = SDXI_KEY_COMMIT_PARTIAL;
+		goto out_unlock;
+	}
+
+	args->commit_state = SDXI_KEY_COMMIT_ALL;
+out_unlock:
+	mutex_unlock(&cxt->akey_lock);
 	return ret;
 }
