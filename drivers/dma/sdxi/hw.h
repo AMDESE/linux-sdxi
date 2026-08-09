@@ -45,6 +45,13 @@ struct sdxi_cxt_L1_ent {
 #define SDXI_CXT_L1_ENT_PASID          GENMASK(19, 0)
 #define SDXI_CXT_L1_ENT_MAX_BUFFER     GENMASK(23, 20)
 	__le32 opb_000_enb;
+#define SDXI_OPB_000_ADMIN             BIT(2)
+#define SDXI_OPB_000_ATOMIC_FULL       BIT(3)
+#define SDXI_OPB_000_INTR              BIT(4)
+#define SDXI_OPB_000_ATOMIC_MIN        BIT(5)
+#define SDXI_OPB_000_ATOMIC            (SDXI_OPB_000_ATOMIC_FULL | \
+					SDXI_OPB_000_ATOMIC_MIN)
+#define SDXI_OPB_000_DISC_MASK         GENMASK(31, 6)
 	__u8 rsvd_0[8];
 } __packed __aligned(32);
 static_assert(sizeof(struct sdxi_cxt_L1_ent) == 32);
@@ -100,15 +107,51 @@ struct sdxi_akey_ent {
 	__le16 intr_num;
 #define SDXI_AKEY_ENT_VL BIT(0)
 #define SDXI_AKEY_ENT_IV BIT(1)
+#define SDXI_AKEY_ENT_PV BIT(2)
+#define SDXI_AKEY_ENT_STE BIT(3)
 #define SDXI_AKEY_ENT_INTR_NUM GENMASK(14, 4)
 	__le16 tgt_sfunc;
 	__le32 pasid;
+#define SDXI_AKEY_ENT_PASID GENMASK(19, 0)
+#define SDXI_AKEY_ENT_PR    BIT(29)
+#define SDXI_AKEY_ENT_PH    GENMASK(31, 30)
 	__le16 stag;
 	__u8   rsvd_0[2];
 	__le16 rkey;
 	__u8   rsvd_1[2];
 } __packed __aligned(16);
 static_assert(sizeof(struct sdxi_akey_ent) == 16);
+
+/* SDXI 1.0 Table 3-8: RKey Table Entry (RKEY_ENT) */
+struct sdxi_rkey_ent {
+	__le16 intr_num;
+#define SDXI_RKEY_ENT_VL BIT(0)
+#define SDXI_RKEY_ENT_IV BIT(1)
+#define SDXI_RKEY_ENT_PV BIT(2)
+#define SDXI_RKEY_ENT_STE BIT(3)
+#define SDXI_RKEY_ENT_INTR_NUM GENMASK(14, 4)
+	__le16 req_sfunc;
+	__le32 pasid;
+#define SDXI_RKEY_ENT_PASID GENMASK(19, 0)
+#define SDXI_RKEY_ENT_PR    BIT(29)
+#define SDXI_RKEY_ENT_PH    GENMASK(31, 30)
+	__le16 stag;
+	__u8 rsvd_0[6];
+} __packed __aligned(16);
+static_assert(sizeof(struct sdxi_rkey_ent) == 16);
+
+/* SDXI 1.0 Table 3-9: Error Log Header Entry (ERRLOG_HD_ENT) */
+struct sdxi_errlog_hd_ent {
+	__le32 opcode;
+	__le16 misc0;
+	__le16 cxt_num;
+	__le64 dsc_index;
+	__u8 rsvd_0[28];
+	__le16 err_class;
+	__u8 rsvd_1[2];
+	__le32 vendor[4];
+} __packed __aligned(64);
+static_assert(sizeof(struct sdxi_errlog_hd_ent) == 64);
 
 /* SDXI 1.0 Table 6-4: CST_BLK (Completion Status Block) */
 struct sdxi_cst_blk {
@@ -141,7 +184,9 @@ struct sdxi_desc {
 #define SDXI_DSC_VL  BIT(0)
 #define SDXI_DSC_SE  BIT(1)
 #define SDXI_DSC_FE  BIT(2)
+#define SDXI_DSC_CH  BIT(3)
 #define SDXI_DSC_CSR BIT(4)
+#define SDXI_DSC_RB  BIT(5)
 #define SDXI_DSC_SUBTYPE GENMASK(15, 8)
 #define SDXI_DSC_TYPE    GENMASK(26, 16)
 
@@ -227,6 +272,38 @@ struct sdxi_desc {
 /* For use with sync.cflags */
 #define SDXI_DSC_SYNC_FLT GENMASK(2, 0)
 
+		/* SDXI 1.0 Table 6-19: DSC_AKEY_UPD Descriptor Format */
+		define_sdxi_dsc(sdxi_dsc_akey_upd, akey_upd,
+				__u8 rsvd_0;
+				__u8 vflags;
+				__le16 vf_num;
+				__le16 cxt_start;
+				__le16 cxt_end;
+				__le16 akey_start;
+				__le16 akey_end;
+				__u8 rsvd_1[40];
+		);
+
+		/* SDXI 1.0 Table 6-23: DSC_RKEY_UPD Descriptor Format */
+		define_sdxi_dsc(sdxi_dsc_rkey_upd, rkey_upd,
+				__u8 rsvd_0;
+				__u8 vflags;
+				__le16 vf_num;
+				__u8 rsvd_1[4];
+				__le16 rkey_start;
+				__le16 rkey_end;
+				__u8 rsvd_2[40];
+		);
+
+		/* SDXI 1.1 Table 6-27: DSC_DISC Descriptor Format */
+		define_sdxi_dsc(sdxi_dsc_disc, disc,
+				__le16 index_start;
+				__le16 index_end;
+				__u8 rsvd_0[8];
+				__le64 addr;
+				__u8 rsvd_1[32];
+		);
+
 #undef define_sdxi_dsc
 	};
 } __packed __aligned(64);
@@ -249,9 +326,12 @@ enum sdxi_dsc_subtype {
 
 	/* Administrative */
 	SDXI_DSC_OP_SUBTYPE_CXT_UPD      = 0x01,
+	SDXI_DSC_OP_SUBTYPE_AKEY_UPD     = 0x02,
 	SDXI_DSC_OP_SUBTYPE_CXT_START_NM = 0x03,
 	SDXI_DSC_OP_SUBTYPE_CXT_STOP     = 0x04,
 	SDXI_DSC_OP_SUBTYPE_SYNC         = 0x06,
+	SDXI_DSC_OP_SUBTYPE_RKEY_UPD     = 0x07,
+	SDXI_DSC_OP_SUBTYPE_DISC         = 0x09,
 };
 
 #endif /* DMA_SDXI_HW_H */
