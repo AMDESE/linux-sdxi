@@ -615,17 +615,85 @@ static bool sdxi_ioctl_has_trailing_payload(unsigned int cmd)
 	       cmd == SDXI_GET_AKEYS || cmd == SDXI_SET_AKEYS;
 }
 
+static bool sdxi_key_list_cmd(unsigned int cmd)
+{
+	return cmd == SDXI_GET_RKEY_LIST || cmd == SDXI_GET_AKEY_LIST;
+}
+
+static bool sdxi_key_entries_cmd(unsigned int cmd)
+{
+	return cmd == SDXI_GET_RKEYS || cmd == SDXI_SET_RKEYS ||
+	       cmd == SDXI_GET_AKEYS || cmd == SDXI_SET_AKEYS;
+}
+
+static u32 sdxi_key_table_entries(unsigned int cmd, struct sdxi_file *sf)
+{
+	if (cmd == SDXI_GET_RKEY_LIST || cmd == SDXI_GET_RKEYS ||
+	    cmd == SDXI_SET_RKEYS)
+		return sf->process->sdxi->rkey_entries;
+
+	if (!sf->cxt || !sf->cxt->akey_table)
+		return 0;
+	return ARRAY_SIZE(sf->cxt->akey_table->entry);
+}
+
+static int sdxi_key_ioctl_sizes(unsigned int cmd, struct sdxi_file *sf,
+				const void *header, size_t header_size,
+				size_t *copyin_size, size_t *copyout_size,
+				size_t *allocation_size)
+{
+	size_t payload_size;
+	u32 nentries;
+	u32 nkeys;
+
+	nentries = sdxi_key_table_entries(cmd, sf);
+
+	if (sdxi_key_list_cmd(cmd)) {
+		const struct sdxi_key_list_args *args = header;
+		size_t required = DIV_ROUND_UP(nentries, 8);
+
+		*copyin_size = header_size;
+		*copyout_size = header_size + min_t(size_t, args->buf_size,
+						    required);
+		*allocation_size = *copyout_size;
+		return 0;
+	}
+
+	if (cmd == SDXI_GET_RKEYS || cmd == SDXI_GET_AKEYS)
+		nkeys = ((const struct sdxi_get_keys_args *)header)->nkeys;
+	else
+		nkeys = ((const struct sdxi_set_keys_args *)header)->nkeys;
+
+	if (nkeys > min_t(u32, nentries, 4096))
+		return -EINVAL;
+	if (check_mul_overflow((size_t)nkeys, sizeof(struct sdxi_key_entry),
+			       &payload_size) ||
+	    check_add_overflow(header_size, payload_size, allocation_size))
+		return -EOVERFLOW;
+
+	*copyin_size = *allocation_size;
+	if (cmd == SDXI_GET_RKEYS || cmd == SDXI_GET_AKEYS)
+		*copyout_size = *allocation_size;
+	else
+		*copyout_size = header_size;
+	return 0;
+}
+
 static long sdxi_ioctl_live(struct file *file, unsigned int cmd,
 			    unsigned long arg)
 {
 	const struct sdxi_ioctl_desc *desc;
 	struct sdxi_file *sf = file->private_data;
+	size_t copyout_size;
+	size_t copyin_size;
 	unsigned int canonical_size;
 	unsigned int user_size;
-	unsigned int size;
+	size_t size;
 	unsigned int nr;
 	char stack_data[128];
 	void *data = stack_data;
+	bool header_copied = false;
+	bool variable;
 	bool allowed;
 	int ret;
 
@@ -666,32 +734,69 @@ static long sdxi_ioctl_live(struct file *file, unsigned int cmd,
 
 	canonical_size = _IOC_SIZE(desc->cmd);
 	user_size = _IOC_SIZE(cmd);
-	size = max(canonical_size, user_size);
-	if (size > PAGE_SIZE)
+	copyin_size = (_IOC_DIR(cmd) & _IOC_WRITE) ? user_size : 0;
+	copyout_size = (_IOC_DIR(cmd) & _IOC_READ) ? user_size : 0;
+	size = max_t(size_t, canonical_size, user_size);
+
+	variable = sdxi_key_list_cmd(desc->cmd) ||
+		   sdxi_key_entries_cmd(desc->cmd);
+	if (variable) {
+		if (user_size < canonical_size)
+			return -EINVAL;
+		if (canonical_size > sizeof(stack_data))
+			return -E2BIG;
+		if (copy_from_user(stack_data, (void __user *)arg,
+				   canonical_size))
+			return -EFAULT;
+		header_copied = true;
+		ret = sdxi_key_ioctl_sizes(desc->cmd, sf, stack_data,
+					   canonical_size, &copyin_size,
+					   &copyout_size, &size);
+		if (ret)
+			return ret;
+	}
+
+	if (size > SZ_1M)
 		return -E2BIG;
 
 	if (size > sizeof(stack_data)) {
 		data = kzalloc(size, GFP_KERNEL);
 		if (!data)
 			return -ENOMEM;
-	} else {
+	} else if (!header_copied) {
 		memset(data, 0, size);
+	} else if (size > canonical_size) {
+		memset(data + canonical_size, 0, size - canonical_size);
 	}
 
-	if ((_IOC_DIR(cmd) & _IOC_WRITE) &&
-	    copy_from_user(data, (void __user *)arg, user_size)) {
-		ret = -EFAULT;
-		goto out;
+	if (_IOC_DIR(cmd) & _IOC_WRITE) {
+		if (header_copied) {
+			if (data != stack_data)
+				memcpy(data, stack_data, canonical_size);
+			if (copyin_size > canonical_size &&
+			    copy_from_user(data + canonical_size,
+					   (void __user *)(arg + canonical_size),
+					   copyin_size - canonical_size)) {
+				ret = -EFAULT;
+				goto out;
+			}
+		} else if (copy_from_user(data, (void __user *)arg,
+					  copyin_size)) {
+			ret = -EFAULT;
+			goto out;
+		}
 	}
 
 	ret = desc->func(file, sf, data);
 
+	if (ret == -ENOSPC && sdxi_key_list_cmd(desc->cmd))
+		copyout_size = canonical_size;
 	if ((_IOC_DIR(cmd) & _IOC_READ) && user_size > canonical_size &&
 	    !sdxi_ioctl_has_trailing_payload(desc->cmd))
 		memset((u8 *)data + canonical_size, 0,
 		       user_size - canonical_size);
 	if ((_IOC_DIR(cmd) & _IOC_READ) &&
-	    copy_to_user((void __user *)arg, data, user_size))
+	    copy_to_user((void __user *)arg, data, copyout_size))
 		ret = -EFAULT;
 
 out:
@@ -716,7 +821,7 @@ static long sdxi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	return ret;
 }
 
-static int sdxi_mmap(struct file *file, struct vm_area_struct *vma)
+static int sdxi_mmap_live(struct file *file, struct vm_area_struct *vma)
 {
 	struct sdxi_file *sf = file->private_data;
 	struct sdxi_cxt *cxt;
@@ -781,7 +886,24 @@ static int sdxi_mmap(struct file *file, struct vm_area_struct *vma)
 	return ret;
 }
 
-static __poll_t sdxi_cxt_poll(struct file *file, poll_table *wait)
+static int sdxi_mmap(struct file *file, struct vm_area_struct *vma)
+{
+	struct sdxi_file *sf = file->private_data;
+	struct sdxi_dev *sdxi;
+	int ret;
+
+	if (!sf || !sf->process)
+		return -EINVAL;
+	sdxi = sf->process->sdxi;
+
+	if (!down_read_trylock(&sdxi->state_lock))
+		return -EAGAIN;
+	ret = sdxi->online ? sdxi_mmap_live(file, vma) : -ENODEV;
+	up_read(&sdxi->state_lock);
+	return ret;
+}
+
+static __poll_t sdxi_cxt_poll_live(struct file *file, poll_table *wait)
 {
 	struct sdxi_file *sf = file->private_data;
 	struct sdxi_cxt *cxt;
@@ -802,6 +924,23 @@ static __poll_t sdxi_cxt_poll(struct file *file, poll_table *wait)
 	if (READ_ONCE(cxt->resources_released))
 		mask |= EPOLLHUP;
 
+	return mask;
+}
+
+static __poll_t sdxi_cxt_poll(struct file *file, poll_table *wait)
+{
+	struct sdxi_file *sf = file->private_data;
+	struct sdxi_dev *sdxi;
+	__poll_t mask;
+
+	if (!sf || !sf->process)
+		return EPOLLERR | EPOLLHUP;
+	sdxi = sf->process->sdxi;
+
+	down_read(&sdxi->state_lock);
+	mask = sdxi->online ? sdxi_cxt_poll_live(file, wait) :
+			      EPOLLERR | EPOLLHUP;
+	up_read(&sdxi->state_lock);
 	return mask;
 }
 
