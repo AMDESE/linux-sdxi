@@ -31,6 +31,7 @@
 #include "context.h"
 #include "intr.h"
 #include "ioctl.h"
+#include "keys.h"
 #include "mmio.h"
 #include "process.h"
 #include "sdxi.h"
@@ -95,6 +96,7 @@ static int sdxi_ioctl_get_uapi_info(struct file *file, struct sdxi_file *sf,
 		.caps = {
 			SDXI_UAPI_CAP_DEV_INFO |
 			SDXI_UAPI_CAP_DEV_ATTR_MGMT |
+			SDXI_UAPI_CAP_RKEY_MGMT |
 			SDXI_UAPI_CAP_CXT_CREATE |
 			SDXI_UAPI_CAP_CXT_EVENTFD,
 		},
@@ -569,11 +571,11 @@ static const struct sdxi_ioctl_desc sdxi_ioctls[] = {
 		       SDXI_IOCTL_A_PUBLIC_DEVICE),
 	SDXI_IOCTL_DEF(0x04, SDXI_SET_DEV_ATTR, sdxi_ioctl_set_dev_attr,
 		       SDXI_IOCTL_F_DEVICE, SDXI_IOCTL_A_ADMIN_DEVICE),
-	SDXI_IOCTL_DEF(0x05, SDXI_GET_RKEY_LIST, sdxi_ioctl_unsupported,
+	SDXI_IOCTL_DEF(0x05, SDXI_GET_RKEY_LIST, sdxi_ioctl_get_rkey_list,
 		       SDXI_IOCTL_F_DEVICE, SDXI_IOCTL_A_ADMIN_DEVICE),
-	SDXI_IOCTL_DEF(0x06, SDXI_GET_RKEYS, sdxi_ioctl_unsupported,
+	SDXI_IOCTL_DEF(0x06, SDXI_GET_RKEYS, sdxi_ioctl_get_rkeys,
 		       SDXI_IOCTL_F_DEVICE, SDXI_IOCTL_A_ADMIN_DEVICE),
-	SDXI_IOCTL_DEF(0x07, SDXI_SET_RKEYS, sdxi_ioctl_unsupported,
+	SDXI_IOCTL_DEF(0x07, SDXI_SET_RKEYS, sdxi_ioctl_set_rkeys,
 		       SDXI_IOCTL_F_DEVICE, SDXI_IOCTL_A_ADMIN_DEVICE),
 	SDXI_IOCTL_DEF(0x08, SDXI_CREATE_CXT, sdxi_ioctl_create_cxt,
 		       SDXI_IOCTL_F_DEVICE, SDXI_IOCTL_A_PUBLIC_DEVICE),
