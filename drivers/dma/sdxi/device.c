@@ -25,6 +25,7 @@
 #include "context.h"
 #include "dma.h"
 #include "hw.h"
+#include "keys.h"
 #include "mmio.h"
 #include "sdxi.h"
 
@@ -387,6 +388,10 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 			   FIELD_GET(SDXI_MMIO_CAP1_OPB_000_CAP, cap1));
 	sdxi_write64(sdxi, SDXI_MMIO_CTL2, ctl2);
 
+	err = sdxi_keys_init(sdxi, cap1);
+	if (err)
+		return err;
+
 	/* SDXI 1.0 4.1.8.2 Context Level 2 Table Setup */
 	sdxi->L2_table = dmam_alloc_coherent(sdxi->dev,
 					     sizeof(*sdxi->L2_table),
@@ -458,6 +463,7 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 	xa_init_flags(&sdxi->client_cxts, XA_FLAGS_ALLOC1);
 	mutex_init(&sdxi->cxt_lock);
 	mutex_init(&sdxi->admin_lock);
+	mutex_init(&sdxi->rkey_lock);
 	dev_set_drvdata(dev, sdxi);
 
 	err = sdxi->bus_ops->init(sdxi);
@@ -476,9 +482,10 @@ void sdxi_unregister(struct device *dev)
 {
 	struct sdxi_dev *sdxi = dev_get_drvdata(dev);
 
-	/* Stop/reset is best effort if the hardware cannot be quiesced. */
-	sdxi_dev_stop(sdxi);
+	if (sdxi_dev_stop(sdxi))
+		sdxi_dev_force_quiesce(sdxi);
 	sdxi_client_cxts_exit(sdxi);
+	sdxi_keys_exit(sdxi);
 	ida_destroy(&sdxi->vectors);
 }
 EXPORT_SYMBOL_NS_GPL(sdxi_unregister, "SDXI");

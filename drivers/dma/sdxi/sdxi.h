@@ -90,6 +90,14 @@ struct sdxi_dev {
 	u16 L1_users[SDXI_L2_TABLE_ENTRIES];
 	struct mutex cxt_lock;		/* context table serialization */
 
+	/* RKey table */
+	struct mutex rkey_lock;
+	struct sdxi_rkey_ent *rkey_table;
+	dma_addr_t rkey_table_dma;
+	u32 rkey_entries;
+	u8 rkey_order;
+	bool rkey_cap;
+
 	struct dma_pool *cxt_ctl_pool;
 
 	unsigned int nr_vectors;
