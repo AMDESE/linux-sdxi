@@ -15,8 +15,10 @@
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
 #include <linux/errno.h>
+#include <linux/fs.h>
 #include <linux/idr.h>
 #include <linux/iommu.h>
+#include <linux/mm.h>
 #include <linux/overflow.h>
 #include <linux/poll.h>
 #include <linux/slab.h>
@@ -73,6 +75,8 @@ static void sdxi_free_cxt(struct sdxi_cxt *cxt)
 	ida_destroy(&cxt->akey_ida);
 	mutex_destroy(&cxt->akey_lock);
 	mutex_destroy(&cxt->cleanup_lock);
+	if (cxt->mapping_inode)
+		iput(cxt->mapping_inode);
 	kfree(cxt->ring_state);
 	kfree(cxt);
 	put_device(&sdxi->chardev);
@@ -388,9 +392,9 @@ static int sdxi_publish_cxt(struct sdxi_cxt *cxt,
 	u8 l1_idx;
 	int err;
 
-	if (WARN_ONCE(cxt->id > cxt->sdxi->max_cxtid,
+	if (WARN_ONCE(cxt->id > READ_ONCE(cxt->sdxi->max_cxtid),
 		      "can't install cxt with id %u (limit %u)",
-		      cxt->id, cxt->sdxi->max_cxtid))
+		      cxt->id, READ_ONCE(cxt->sdxi->max_cxtid)))
 		return -EINVAL;
 
 	err = configure_cxt_ctl(cxt->cxt_ctl, ctl_cfg);
@@ -415,7 +419,7 @@ static int sdxi_publish_cxt(struct sdxi_cxt *cxt,
 		.akey_sz     = akey_table_order(cxt->akey_table),
 		.akey_ptr    = cxt->akey_table_dma,
 		.cxt_pasid   = cxt->pasid,
-		.max_buffer  = cxt->sdxi->max_buffer,
+		.max_buffer  = READ_ONCE(cxt->sdxi->max_buffer),
 		.opb_000_enb = cxt->opb_000_enb,
 	};
 
@@ -734,6 +738,8 @@ static void sdxi_cxt_force_exit(struct sdxi_cxt *cxt)
 	mutex_lock(&cxt->cleanup_lock);
 	cxt->cleanup_stopping = true;
 	mutex_unlock(&cxt->cleanup_lock);
+	if (cxt->mapping_inode)
+		unmap_mapping_range(cxt->mapping_inode->i_mapping, 0, 0, 1);
 	cancel_delayed_work_sync(&cxt->cleanup_work);
 
 	mutex_lock(&cxt->cleanup_lock);
@@ -752,6 +758,16 @@ static void sdxi_cxt_force_exit(struct sdxi_cxt *cxt)
 		sdxi_cxt_finish_release(cxt, process);
 	/* Drop the temporary reference acquired above. */
 	sdxi_cxt_put(cxt);
+}
+
+void sdxi_cxt_abort(struct sdxi_cxt *cxt)
+{
+	if (!cxt || !sdxi_cxt_exit(cxt))
+		return;
+
+	/* Normal release retained the context; fence DMA before forcing it. */
+	sdxi_dev_fail(cxt->sdxi);
+	sdxi_cxt_force_exit(cxt);
 }
 
 static int sdxi_cxt_doorbell_offset(const struct sdxi_cxt *cxt,
@@ -827,7 +843,7 @@ static void sdxi_cxt_id_dtor(const struct sdxi_cxt_id *cxt_id)
 
 static struct sdxi_cxt_id sdxi_cxt_id_ctor(struct sdxi_dev *sdxi)
 {
-	struct xa_limit limit = XA_LIMIT(1, sdxi->max_cxtid);
+	struct xa_limit limit = XA_LIMIT(1, READ_ONCE(sdxi->max_cxtid));
 	u32 index;
 
 	return (struct sdxi_cxt_id) {
@@ -1059,6 +1075,8 @@ int sdxi_cxt_exit(struct sdxi_cxt *cxt)
 	mutex_lock(&cxt->cleanup_lock);
 	cxt->cleanup_stopping = true;
 	mutex_unlock(&cxt->cleanup_lock);
+	if (cxt->mapping_inode)
+		unmap_mapping_range(cxt->mapping_inode->i_mapping, 0, 0, 1);
 	cancel_delayed_work_sync(&cxt->cleanup_work);
 
 	mutex_lock(&cxt->cleanup_lock);
@@ -1218,6 +1236,25 @@ void sdxi_cxt_vma_open(struct sdxi_cxt *cxt)
 	mutex_lock(&cxt->cleanup_lock);
 	cxt->vma_refs++;
 	mutex_unlock(&cxt->cleanup_lock);
+}
+
+int sdxi_cxt_vma_acquire(struct sdxi_cxt *cxt)
+{
+	int ret = 0;
+
+	if (!cxt)
+		return -EINVAL;
+
+	mutex_lock(&cxt->cleanup_lock);
+	if (cxt->fatal || cxt->cleanup_stopping || cxt->resources_released) {
+		ret = -ENODEV;
+	} else {
+		sdxi_cxt_get(cxt);
+		cxt->vma_refs++;
+	}
+	mutex_unlock(&cxt->cleanup_lock);
+
+	return ret;
 }
 
 void sdxi_cxt_vma_close(struct sdxi_cxt *cxt)

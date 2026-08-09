@@ -47,7 +47,9 @@ enum {
 };
 
 struct sdxi_dev;
+struct sdxi_cxt;
 struct module;
+struct vm_area_struct;
 
 /**
  * struct sdxi_bus_ops - Bus-specific methods for SDXI devices.
@@ -74,6 +76,11 @@ struct sdxi_bus_ops {
 	 *                  device recovery fails.
 	 */
 	void (*force_quiesce)(struct sdxi_dev *sdxi);
+	/**
+	 * @mmap_doorbell: Map one context's doorbell region.
+	 */
+	int (*mmap_doorbell)(struct sdxi_dev *sdxi, struct sdxi_cxt *cxt,
+			     struct vm_area_struct *vma);
 };
 
 struct sdxi_dev {
@@ -86,6 +93,7 @@ struct sdxi_dev {
 
 	/* hardware capabilities (from cap0 & cap1) */
 	u32 db_stride;			/* doorbell stride in bytes */
+	u64 max_ring_entries;
 	u16 max_cxtid;			/* Maximum context ID allowed. */
 	u8 max_buffer;			/* Configured log2 buffer size minus 21. */
 	u32 op_grp_cap;			/* supported operation group cap */

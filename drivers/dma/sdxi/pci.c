@@ -11,9 +11,12 @@
 #include <linux/err.h>
 #include <linux/io.h>
 #include <linux/iomap.h>
+#include <linux/mm.h>
 #include <linux/module.h>
+#include <linux/overflow.h>
 #include <linux/pci.h>
 
+#include "context.h"
 #include "mmio.h"
 #include "sdxi.h"
 
@@ -129,12 +132,36 @@ static void sdxi_pci_force_quiesce(struct sdxi_dev *sdxi)
 		dev_err(&pdev->dev, "pending PCI transactions did not drain\n");
 }
 
+static int sdxi_pci_mmap_doorbell(struct sdxi_dev *sdxi,
+				  struct sdxi_cxt *cxt,
+				  struct vm_area_struct *vma)
+{
+	struct pci_dev *pdev = sdxi_to_pci_dev(sdxi);
+	resource_size_t offset;
+	resource_size_t address;
+
+	if (check_mul_overflow((resource_size_t)cxt->id,
+			       (resource_size_t)sdxi->db_stride, &offset))
+		return -EOVERFLOW;
+	if (offset > pci_resource_len(pdev, SDXI_PCI_BAR_DOORBELL) ||
+	    sdxi->db_stride >
+	    pci_resource_len(pdev, SDXI_PCI_BAR_DOORBELL) - offset)
+		return -EINVAL;
+
+	address = pci_resource_start(pdev, SDXI_PCI_BAR_DOORBELL) + offset;
+	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+
+	return io_remap_pfn_range(vma, vma->vm_start, address >> PAGE_SHIFT,
+				  sdxi->db_stride, vma->vm_page_prot);
+}
+
 static const struct sdxi_bus_ops sdxi_pci_ops = {
 	.owner = THIS_MODULE,
 	.init = sdxi_pci_init,
 	.reset = sdxi_pci_reset,
 	.get_irq = sdxi_pci_get_irq,
 	.force_quiesce = sdxi_pci_force_quiesce,
+	.mmap_doorbell = sdxi_pci_mmap_doorbell,
 };
 
 static int sdxi_pci_probe(struct pci_dev *pdev,

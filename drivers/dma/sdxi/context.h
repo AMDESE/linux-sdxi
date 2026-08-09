@@ -33,6 +33,7 @@ struct sdxi_akey_table {
 };
 
 struct eventfd_ctx;
+struct inode;
 struct sdxi_process;
 
 /* For encoding the akey table size in CXT_L1_ENT's akey_sz. */
@@ -79,6 +80,7 @@ struct sdxi_cxt {
 
 	struct sdxi_ring_state *ring_state;
 	struct sdxi_process *process;
+	struct inode *mapping_inode;
 
 	spinlock_t intr_lock;		/* eventfd and interrupt state */
 	struct eventfd_ctx *intr_eventfd;
@@ -100,6 +102,7 @@ struct sdxi_cxt *sdxi_ucxt_new(struct sdxi_dev *sdxi, u32 ring_entries,
  * the caller must not reuse it.
  */
 int sdxi_cxt_exit(struct sdxi_cxt *cxt);
+void sdxi_cxt_abort(struct sdxi_cxt *cxt);
 void sdxi_client_cxts_exit(struct sdxi_dev *sdxi);
 void sdxi_cxt_get(struct sdxi_cxt *cxt);
 void sdxi_cxt_put(struct sdxi_cxt *cxt);
@@ -113,6 +116,7 @@ void sdxi_cxt_kill_stopped(struct sdxi_cxt *cxt);
 void sdxi_cxt_release_user_handle(struct sdxi_cxt *cxt);
 int sdxi_cxt_notify_mm_release(struct sdxi_cxt *cxt);
 void sdxi_cxt_vma_open(struct sdxi_cxt *cxt);
+int sdxi_cxt_vma_acquire(struct sdxi_cxt *cxt);
 void sdxi_cxt_vma_close(struct sdxi_cxt *cxt);
 
 enum sdxi_submit_flags {

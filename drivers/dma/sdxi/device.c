@@ -391,6 +391,9 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	sdxi->db_stride *= 1U << FIELD_GET(SDXI_MMIO_CAP0_DB_STRIDE, cap0);
 	if (sdxi->db_stride > sdxi->db_size)
 		return -ENODEV;
+	sdxi->max_ring_entries = SZ_1K;
+	sdxi->max_ring_entries <<=
+		FIELD_GET(SDXI_MMIO_CAP0_MAX_DS_RING_SZ, cap0);
 
 	cap1 = sdxi_read64(sdxi, SDXI_MMIO_CAP1);
 	sdxi->op_grp_cap = FIELD_GET(SDXI_MMIO_CAP1_OPB_000_CAP, cap1);
