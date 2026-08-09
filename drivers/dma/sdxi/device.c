@@ -245,6 +245,38 @@ static int sdxi_dev_start(struct sdxi_dev *sdxi)
 	return 0;
 }
 
+void sdxi_dev_force_quiesce(struct sdxi_dev *sdxi)
+{
+	enum sdxi_fn_gsv status = sdxi_dev_gsv(sdxi);
+	int ret;
+
+	if (status == SDXI_GSV_STOP)
+		return;
+
+	if (status != SDXI_GSV_ERROR) {
+		sdxi_write_fn_gsr(sdxi, SDXI_GSRV_STOP_HD);
+		ret = sdxi_dev_gsv_poll(sdxi, status,
+					status == SDXI_GSV_STOP ||
+					status == SDXI_GSV_ERROR);
+		if (!ret && status == SDXI_GSV_STOP)
+			return;
+	} else {
+		ret = 0;
+	}
+
+	if (!ret && status == SDXI_GSV_ERROR) {
+		sdxi_write_fn_gsr(sdxi, SDXI_GSRV_RESET);
+		ret = sdxi_dev_gsv_poll(sdxi, status,
+					status == SDXI_GSV_STOP);
+		if (!ret)
+			return;
+	}
+
+	dev_err(sdxi->dev, "failed to quiesce function; disabling bus DMA\n");
+	if (sdxi->bus_ops->force_quiesce)
+		sdxi->bus_ops->force_quiesce(sdxi);
+}
+
 /* Stop the function and discard inherited MMIO configuration. */
 static int sdxi_fn_prepare(struct sdxi_dev *sdxi)
 {
@@ -425,6 +457,7 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 	ida_init(&sdxi->vectors);
 	xa_init_flags(&sdxi->client_cxts, XA_FLAGS_ALLOC1);
 	mutex_init(&sdxi->cxt_lock);
+	mutex_init(&sdxi->admin_lock);
 	dev_set_drvdata(dev, sdxi);
 
 	err = sdxi->bus_ops->init(sdxi);

@@ -22,6 +22,7 @@
 #include <asm/barrier.h>
 #include <asm/rwonce.h>
 
+#include "admin.h"
 #include "completion.h"
 #include "context.h"
 #include "descriptor.h"
@@ -104,78 +105,6 @@ static struct sdxi_cxt *sdxi_alloc_cxt(struct sdxi_dev *sdxi)
 		return NULL;
 
 	return_ptr(cxt);
-}
-
-/* Claim completion storage before making a ring reservation irrevocable. */
-static int sdxi_cxt_reserve(struct sdxi_cxt *cxt, size_t nr,
-			    struct sdxi_ring_resv *resv,
-			    struct sdxi_completion *comp)
-{
-	int err;
-
-	err = sdxi_cst_pool_get_wait(cxt->cst_pool, comp);
-	if (err)
-		return err;
-
-	err = sdxi_ring_reserve(cxt->ring_state, nr, resv);
-	if (err)
-		sdxi_cst_pool_put(cxt->cst_pool, comp->cst_blk);
-
-	return err;
-}
-
-static int sdxi_cxt_poll_completion(struct sdxi_cxt *cxt,
-				    const struct sdxi_completion *comp)
-{
-	int err = sdxi_cst_blk_poll(comp->cst_blk);
-
-	/*
-	 * A timeout does not end hardware ownership. Keep these administrative
-	 * blocks claimed until context teardown, even if they complete later.
-	 * Repeated timeouts can exhaust the pool; allocation then times out too.
-	 */
-	if (err != -ETIMEDOUT)
-		sdxi_cst_pool_put(cxt->cst_pool, comp->cst_blk);
-	sdxi_ring_wake_up(cxt->ring_state);
-
-	return err;
-}
-
-/*
- * Signal the function that a client context's control structures have
- * been modified so it discards any privately cached copies of them.
- * DSC_SYNC.CXT is required before the operation can be considered
- * complete.
- */
-static int sdxi_cxt_update(const struct sdxi_cxt *cxt)
-{
-	struct sdxi_cxt *adm = to_admin_cxt(cxt);
-	struct sdxi_slot upd, sync;
-	struct sdxi_ring_resv resv;
-	struct sdxi_completion comp;
-	int err;
-
-	might_sleep();
-
-	err = sdxi_cxt_reserve(adm, 2, &resv, &comp);
-	if (err)
-		return err;
-
-	upd = sdxi_ring_resv_slot(&resv, 0);
-	sync = sdxi_ring_resv_slot(&resv, 1);
-
-	sdxi_encode_cxt_upd(sdxi_slot_desc(upd), &(const struct sdxi_cxt_upd) {
-			.level = SDXI_CXT_UPD_LVL_L1,
-			.range = sdxi_cxt_range_single(cxt->id),
-		});
-	sdxi_encode_sync(sdxi_slot_desc(sync), &(const struct sdxi_sync) {
-			.filter = SDXI_SYNC_FLT_CXT,
-			.range = sdxi_cxt_range_single(cxt->id),
-		});
-	sdxi_cxt_submit(adm, upd, NULL, 0);
-	sdxi_cxt_submit(adm, sync, &comp, SDXI_CXT_SUBMIT_KICK);
-
-	return sdxi_cxt_poll_completion(adm, &comp);
 }
 
 struct sdxi_cxt_ctl_cfg {
@@ -417,67 +346,6 @@ int sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
 	return devm_add_action_or_reset(sdxi->dev, free_admin_cxt, sdxi);
 }
 
-int sdxi_start_cxt(struct sdxi_cxt *cxt)
-{
-	struct sdxi_cxt *adm = to_admin_cxt(cxt);
-	struct sdxi_ring_resv resv;
-	struct sdxi_completion comp;
-	struct sdxi_slot start;
-	int err;
-
-	might_sleep();
-
-	/* Administrative context activation is controlled by the function state. */
-	if (WARN_ON(adm == cxt))
-		return -EINVAL;
-
-	err = sdxi_cxt_reserve(adm, 1, &resv, &comp);
-	if (err)
-		return err;
-
-	start = sdxi_ring_resv_slot(&resv, 0);
-	sdxi_encode_cxt_start(sdxi_slot_desc(start), &(const struct sdxi_cxt_start) {
-			.range = sdxi_cxt_range_single(cxt->id),
-		});
-	sdxi_cxt_submit(adm, start, &comp, SDXI_CXT_SUBMIT_KICK);
-
-	return sdxi_cxt_poll_completion(adm, &comp);
-}
-
-void sdxi_stop_cxt(struct sdxi_cxt *cxt)
-{
-	struct sdxi_cxt *adm = to_admin_cxt(cxt);
-	struct sdxi_slot stop, sync;
-	struct sdxi_ring_resv resv;
-	struct sdxi_completion comp;
-	int err;
-
-	might_sleep();
-
-	/* Administrative context stopping is controlled by the function state. */
-	if (WARN_ON(adm == cxt))
-		return;
-
-	err = sdxi_cxt_reserve(adm, 2, &resv, &comp);
-	if (WARN_ON_ONCE(err))
-		return;
-
-	stop = sdxi_ring_resv_slot(&resv, 0);
-	sync = sdxi_ring_resv_slot(&resv, 1);
-
-	sdxi_encode_cxt_stop(sdxi_slot_desc(stop), &(const struct sdxi_cxt_stop) {
-			.range = sdxi_cxt_range_single(cxt->id),
-		});
-	sdxi_encode_sync(sdxi_slot_desc(sync), &(const struct sdxi_sync) {
-			.filter = SDXI_SYNC_FLT_STOP,
-			.range = sdxi_cxt_range_single(cxt->id),
-		});
-	sdxi_cxt_submit(adm, stop, NULL, 0);
-	sdxi_cxt_submit(adm, sync, &comp, SDXI_CXT_SUBMIT_KICK);
-
-	WARN_ON(sdxi_cxt_poll_completion(adm, &comp));
-}
-
 /*
  * Temporary owner for context id until it can be assigned to a
  * context object; enables scope-based cleanup.
@@ -637,7 +505,7 @@ int sdxi_cxt_exit(struct sdxi_cxt *cxt)
 	invalidate_cxt_ctl(cxt->cxt_ctl);
 	mutex_unlock(&sdxi->cxt_lock);
 
-	err = sdxi_cxt_update(cxt);
+	err = sdxi_adm_update_cxt(cxt);
 	if (err) {
 		dev_err(sdxi->dev,
 			"context %u release failed (%d), retaining resources until function shutdown\n",

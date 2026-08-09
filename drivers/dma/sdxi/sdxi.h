@@ -63,6 +63,11 @@ struct sdxi_bus_ops {
 	 * @get_irq: Map device interrupt index to Linux IRQ number.
 	 */
 	int (*get_irq)(struct sdxi_dev *sdxi, unsigned int index);
+	/**
+	 * @force_quiesce: Permanently prevent further bus-mastering DMA after
+	 *                  device recovery fails.
+	 */
+	void (*force_quiesce)(struct sdxi_dev *sdxi);
 };
 
 struct sdxi_dev {
@@ -91,6 +96,8 @@ struct sdxi_dev {
 	struct ida vectors;
 
 	struct sdxi_cxt *admin_cxt;
+	struct mutex admin_lock;		/* admin submission serialization */
+	bool admin_dead;
 	struct xarray client_cxts; /* context id -> (struct sdxi_cxt *) */
 
 	bool has_mailbox;
@@ -138,6 +145,7 @@ static inline int sdxi_vector_to_irq(struct sdxi_dev *sdxi, unsigned int nr)
 
 int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops);
 void sdxi_unregister(struct device *dev);
+void sdxi_dev_force_quiesce(struct sdxi_dev *sdxi);
 
 static inline u64 sdxi_read64(const struct sdxi_dev *sdxi, enum sdxi_reg reg)
 {

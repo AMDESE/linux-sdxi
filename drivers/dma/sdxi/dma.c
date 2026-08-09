@@ -20,6 +20,7 @@
 
 #include "../dmaengine.h"
 #include "../virt-dma.h"
+#include "admin.h"
 #include "completion.h"
 #include "context.h"
 #include "descriptor.h"
@@ -416,9 +417,12 @@ static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
 	if (err)
 		goto free_akey;
 
-	err = sdxi_start_cxt(sdchan->cxt);
-	if (err)
+	err = sdxi_adm_start_cxt(sdchan->cxt);
+	if (err) {
+		sdxi->admin_dead = true;
+		sdxi_dev_force_quiesce(sdxi);
 		goto free_irq;
+	}
 
 	return 0;
 free_irq:
@@ -428,25 +432,31 @@ free_akey:
 free_vector:
 	sdxi_free_vector(sdxi, vector);
 exit_cxt:
-	sdxi_cxt_exit(sdchan->cxt);
+	WARN_ON(sdxi_cxt_exit(sdchan->cxt));
 	return err;
 }
 
 static void sdxi_dma_free_chan_resources(struct dma_chan *dma_chan)
 {
 	struct sdxi_dma_chan *sdchan = to_sdxi_dma_chan(dma_chan);
+	struct sdxi_dev *sdxi = sdchan->cxt->sdxi;
 	LIST_HEAD(head);
+	int err;
 
-	sdxi_stop_cxt(sdchan->cxt);
+	err = sdxi_adm_stop_cxt(sdchan->cxt);
+	if (WARN_ON(err)) {
+		sdxi->admin_dead = true;
+		sdxi_dev_force_quiesce(sdxi);
+	}
 	free_irq(sdchan->irq, sdchan);
-	sdxi_free_vector(sdchan->cxt->sdxi, sdchan->vector);
+	sdxi_free_vector(sdxi, sdchan->vector);
 	sdxi_free_akey(sdchan->cxt, sdchan->akey);
 	/* virt-dma does not know about the driver's pending list. */
 	scoped_guard(spinlock_irqsave, &sdchan->vchan.lock)
 		list_splice_tail_init(&sdchan->pending, &head);
 	vchan_dma_desc_free_list(&sdchan->vchan, &head);
 	vchan_free_chan_resources(to_virt_chan(dma_chan));
-	sdxi_cxt_exit(sdchan->cxt);
+	WARN_ON(sdxi_cxt_exit(sdchan->cxt));
 }
 
 int sdxi_dma_register(struct sdxi_dev *sdxi)

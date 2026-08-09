@@ -60,9 +60,6 @@ struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi);
 int sdxi_cxt_exit(struct sdxi_cxt *cxt);
 void sdxi_client_cxts_exit(struct sdxi_dev *sdxi);
 
-int sdxi_start_cxt(struct sdxi_cxt *cxt);
-void sdxi_stop_cxt(struct sdxi_cxt *cxt);
-
 enum sdxi_submit_flags {
 	SDXI_CXT_SUBMIT_KICK  = BIT(0),
 	SDXI_CXT_SUBMIT_FENCE = BIT(1),
@@ -72,16 +69,6 @@ void sdxi_cxt_attach_cst(struct sdxi_slot slot,
 			 const struct sdxi_completion *comp);
 void sdxi_cxt_submit(struct sdxi_cxt *cxt, struct sdxi_slot slot,
 		     const struct sdxi_completion *comp, enum sdxi_submit_flags flags);
-
-static inline struct sdxi_cxt *to_admin_cxt(const struct sdxi_cxt *cxt)
-{
-	return cxt->sdxi->admin_cxt;
-}
-
-static inline bool sdxi_cxt_is_admin(const struct sdxi_cxt *cxt)
-{
-	return cxt == to_admin_cxt(cxt);
-}
 
 static inline void sdxi_cxt_kick(struct sdxi_cxt *cxt)
 {

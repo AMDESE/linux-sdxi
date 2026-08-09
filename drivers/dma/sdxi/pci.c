@@ -113,10 +113,26 @@ static int sdxi_pci_get_irq(struct sdxi_dev *sdxi, unsigned int nr)
 	return pci_irq_vector(sdxi_to_pci_dev(sdxi), nr);
 }
 
+static void sdxi_pci_force_quiesce(struct sdxi_dev *sdxi)
+{
+	struct pci_dev *pdev = sdxi_to_pci_dev(sdxi);
+	int ret;
+
+	pci_clear_master(pdev);
+	ret = pci_try_reset_function(pdev);
+	if (!ret)
+		return;
+
+	dev_err(&pdev->dev, "function reset failed: %d\n", ret);
+	if (!pci_wait_for_pending_transaction(pdev))
+		dev_err(&pdev->dev, "pending PCI transactions did not drain\n");
+}
+
 static const struct sdxi_bus_ops sdxi_pci_ops = {
 	.init = sdxi_pci_init,
 	.reset = sdxi_pci_reset,
 	.get_irq = sdxi_pci_get_irq,
+	.force_quiesce = sdxi_pci_force_quiesce,
 };
 
 static int sdxi_pci_probe(struct pci_dev *pdev,
