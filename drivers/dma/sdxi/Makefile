@@ -12,7 +12,8 @@ sdxi-core-y := \
 	ioctl.o       \
 	keys.o        \
 	process.o     \
-	ring.o
+	ring.o        \
+	vendor.o
 
 obj-$(CONFIG_SDXI_PCI) += sdxi-pci.o
 sdxi-pci-y := pci.o

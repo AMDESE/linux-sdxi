@@ -36,6 +36,7 @@
 #include "mmio.h"
 #include "process.h"
 #include "sdxi.h"
+#include "vendor.h"
 
 #define SDXI_MAX_MINORS	256
 
@@ -75,12 +76,6 @@ static int sdxi_file_check_owner(const struct sdxi_process *process)
 	return 0;
 }
 
-static int sdxi_ioctl_unsupported(struct file *file, struct sdxi_file *sf,
-				  void *data)
-{
-	return -EOPNOTSUPP;
-}
-
 static int sdxi_ioctl_get_uapi_info(struct file *file, struct sdxi_file *sf,
 				    void *data)
 {
@@ -101,7 +96,8 @@ static int sdxi_ioctl_get_uapi_info(struct file *file, struct sdxi_file *sf,
 			SDXI_UAPI_CAP_CXT_CREATE |
 			SDXI_UAPI_CAP_CXT_EVENTFD |
 			SDXI_UAPI_CAP_AKEY_MGMT |
-			SDXI_UAPI_CAP_ADMIN_DISC,
+			SDXI_UAPI_CAP_ADMIN_DISC |
+			SDXI_UAPI_CAP_ADMIN_VENDOR,
 		},
 	};
 
@@ -721,6 +717,59 @@ static int sdxi_ioctl_admin_disc(struct file *file, struct sdxi_file *sf,
 	return ret;
 }
 
+static bool
+sdxi_admin_vendor_reserved_zero(const struct sdxi_admin_vendor_args *args)
+{
+	return !args->flags && !args->rsvd0 && !args->rsvd1 &&
+	       sdxi_u32_array_zero(args->rsvd2, ARRAY_SIZE(args->rsvd2));
+}
+
+static unsigned int sdxi_admin_timeout(u32 timeout_ms)
+{
+	return clamp_val(timeout_ms ?: 5000U, 1U, 60000U);
+}
+
+static int sdxi_ioctl_admin_vendor(struct file *file, struct sdxi_file *sf,
+				   void *data)
+{
+	struct sdxi_admin_vendor_args *args = data;
+	const struct sdxi_vendor_handler *handler;
+	struct sdxi_dev *sdxi = sf->process->sdxi;
+	unsigned int timeout_ms;
+	u16 opcode_type;
+	int ret;
+
+	if (args->argsz < sizeof(*args) ||
+	    !sdxi_admin_vendor_reserved_zero(args))
+		return -EINVAL;
+
+	args->argsz = sizeof(*args);
+	args->cst_flags = 0;
+	timeout_ms = sdxi_admin_timeout(args->timeout_ms);
+
+	ret = sdxi_vendor_get(args->guid, &handler);
+	if (ret)
+		return ret;
+
+	ret = sdxi_vendor_find_opcode_type(sdxi, args->guid, timeout_ms,
+					   &opcode_type);
+	if (ret)
+		goto put_handler;
+
+	if (args->op == SDXI_ADMIN_VENDOR_PROBE) {
+		if (args->in_size || args->in_uptr ||
+		    args->out_size || args->out_uptr)
+			ret = -EINVAL;
+		goto put_handler;
+	}
+
+	ret = handler->ops->exec(sdxi, opcode_type, args, timeout_ms);
+
+put_handler:
+	sdxi_vendor_put(handler);
+	return ret;
+}
+
 #define SDXI_IOCTL_DEF(_nr, _cmd, _func, _files, _access)	\
 	[_nr] = {						\
 		.cmd = (_cmd),					\
@@ -759,25 +808,41 @@ static const struct sdxi_ioctl_desc sdxi_ioctls[] = {
 		       SDXI_IOCTL_F_CONTEXT, SDXI_IOCTL_A_CONTEXT_OWNER),
 	SDXI_IOCTL_DEF(0x0d, SDXI_ADMIN_DISC, sdxi_ioctl_admin_disc,
 		       SDXI_IOCTL_F_DEVICE, SDXI_IOCTL_A_PUBLIC_DEVICE),
-	SDXI_IOCTL_DEF(0x0e, SDXI_ADMIN_VENDOR, sdxi_ioctl_unsupported,
+	SDXI_IOCTL_DEF(0x0e, SDXI_ADMIN_VENDOR, sdxi_ioctl_admin_vendor,
 		       SDXI_IOCTL_F_DEVICE, SDXI_IOCTL_A_VENDOR_HANDLER),
 	SDXI_IOCTL_DEF(0x0f, SDXI_QUIESCE_CXT, sdxi_ioctl_quiesce_cxt,
 		       SDXI_IOCTL_F_CONTEXT, SDXI_IOCTL_A_CONTEXT_OWNER),
 };
 
-static int sdxi_ioctl_permit(const struct sdxi_ioctl_desc *desc)
+static int sdxi_ioctl_pre_permit(const struct sdxi_ioctl_desc *desc)
 {
-	switch (desc->access) {
-	case SDXI_IOCTL_A_PUBLIC_DEVICE:
-	case SDXI_IOCTL_A_CONTEXT_OWNER:
-		return 0;
-	case SDXI_IOCTL_A_ADMIN_DEVICE:
+	if (desc->access == SDXI_IOCTL_A_ADMIN_DEVICE)
 		return capable(CAP_SYS_ADMIN) ? 0 : -EPERM;
-	case SDXI_IOCTL_A_VENDOR_HANDLER:
-		return -EOPNOTSUPP;
-	}
 
-	return -EINVAL;
+	return 0;
+}
+
+static int sdxi_ioctl_permit(const struct sdxi_ioctl_desc *desc,
+			     struct sdxi_file *sf, void *data)
+{
+	const struct sdxi_vendor_handler *handler;
+	struct sdxi_admin_vendor_args *args;
+	int ret;
+
+	if (desc->access != SDXI_IOCTL_A_VENDOR_HANDLER)
+		return 0;
+
+	args = data;
+	if (!args || args->argsz < sizeof(*args) ||
+	    !sdxi_admin_vendor_reserved_zero(args))
+		return -EINVAL;
+
+	ret = sdxi_vendor_get(args->guid, &handler);
+	if (ret)
+		return ret;
+	ret = handler->ops->authorize(sf->process->sdxi, args);
+	sdxi_vendor_put(handler);
+	return ret;
 }
 
 static bool sdxi_ioctl_has_trailing_payload(unsigned int cmd)
@@ -900,7 +965,7 @@ static long sdxi_ioctl_live(struct file *file, unsigned int cmd,
 	if (!allowed)
 		return -ENOTTY;
 
-	ret = sdxi_ioctl_permit(desc);
+	ret = sdxi_ioctl_pre_permit(desc);
 	if (ret)
 		return ret;
 
@@ -958,6 +1023,10 @@ static long sdxi_ioctl_live(struct file *file, unsigned int cmd,
 			goto out;
 		}
 	}
+
+	ret = sdxi_ioctl_permit(desc, sf, data);
+	if (ret)
+		goto out;
 
 	ret = desc->func(file, sf, data);
 
