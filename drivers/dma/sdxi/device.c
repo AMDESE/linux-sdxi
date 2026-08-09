@@ -321,8 +321,7 @@ static int sdxi_fn_prepare(struct sdxi_dev *sdxi)
  */
 static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 {
-	u64 version, cap0, cap1, ctl2, cxt_l2, lv01_ptr;
-	struct sdxi_cxt_L2_ent *L2_ent;
+	u64 version, cap0, cap1, ctl2, cxt_l2;
 	int err;
 
 	version = sdxi_read64(sdxi, SDXI_MMIO_VERSION);
@@ -344,12 +343,7 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	dma_set_max_seg_size(sdxi->dev,
 			     min((u64)SZ_2M << sdxi->max_buffer, U32_MAX));
 
-	/*
-	 * Constrain the number of client contexts supported by the
-	 * driver to what fits in a single L1 table.
-	 */
-	sdxi->max_cxtid = min(SDXI_L1_TABLE_ENTRIES - 1,
-			      FIELD_GET(SDXI_MMIO_CAP1_MAX_CXT, cap1));
+	sdxi->max_cxtid = FIELD_GET(SDXI_MMIO_CAP1_MAX_CXT, cap1);
 
 	/* Apply our configuration. */
 	ctl2 = FIELD_PREP(SDXI_MMIO_CTL2_MAX_CXT, sdxi->max_cxtid);
@@ -367,25 +361,10 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 					     &sdxi->L2_dma, GFP_KERNEL);
 	if (!sdxi->L2_table)
 		return -ENOMEM;
+	memset(sdxi->L2_table, 0, sizeof(*sdxi->L2_table));
 
 	cxt_l2 = FIELD_PREP(SDXI_MMIO_CXT_L2_PTR, sdxi->L2_dma >> ilog2(SZ_4K));
 	sdxi_write64(sdxi, SDXI_MMIO_CXT_L2, cxt_l2);
-
-	/* SDXI 1.0 4.1.8.3 Context Level 1 Table Setup */
-	sdxi->L1_table = dmam_alloc_coherent(sdxi->dev,
-					     sizeof(*sdxi->L1_table),
-					     &sdxi->L1_dma, GFP_KERNEL);
-	if (!sdxi->L1_table)
-		return -ENOMEM;
-	/*
-	 * SDXI 1.0 4.1.8.3.c: Initialize the Context level 2 table to
-	 * point to the Context Level 1 [table].
-	 */
-	L2_ent = &sdxi->L2_table->entry[0];
-	lv01_ptr = FIELD_PREP(SDXI_CXT_L2_ENT_VL, 1) |
-		   FIELD_PREP(SDXI_CXT_L2_ENT_LV01_PTR,
-			      sdxi->L1_dma >> ilog2(SZ_4K));
-	L2_ent->lv01_ptr = cpu_to_le64(lv01_ptr);
 
 	/*
 	 * SDXI 1.0 4.1.8.4 Administrative Context
@@ -445,6 +424,7 @@ int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops)
 	sdxi->bus_ops = ops;
 	ida_init(&sdxi->vectors);
 	xa_init_flags(&sdxi->client_cxts, XA_FLAGS_ALLOC1);
+	mutex_init(&sdxi->cxt_lock);
 	dev_set_drvdata(dev, sdxi);
 
 	err = sdxi->bus_ops->init(sdxi);

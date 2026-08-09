@@ -286,13 +286,51 @@ static void invalidate_L1_entry(struct sdxi_cxt_L1_ent *ent)
 	*ent = (typeof(*ent)) { 0 };
 }
 
+static struct sdxi_cxt_L1_table *
+sdxi_get_L1_table(struct sdxi_dev *sdxi, u16 l2_idx)
+{
+	struct sdxi_cxt_L1_table *table;
+	struct sdxi_cxt_L2_ent *L2_ent;
+	dma_addr_t dma;
+	u64 lv01_ptr;
 
-/* Publish the context control block and L1 entry to hardware. */
+	lockdep_assert_held(&sdxi->cxt_lock);
+
+	table = sdxi->L1_tables[l2_idx];
+	if (table)
+		return table;
+
+	table = dmam_alloc_coherent(sdxi->dev, sizeof(*table), &dma, GFP_KERNEL);
+	if (!table)
+		return NULL;
+	memset(table, 0, sizeof(*table));
+
+	L2_ent = &sdxi->L2_table->entry[l2_idx];
+	lv01_ptr = FIELD_PREP(SDXI_CXT_L2_ENT_LV01_PTR,
+			      dma >> ilog2(SZ_4K));
+	L2_ent->lv01_ptr = cpu_to_le64(lv01_ptr);
+	dma_wmb();
+	FIELD_MODIFY(SDXI_CXT_L2_ENT_VL, &lv01_ptr, 1);
+	WRITE_ONCE(L2_ent->lv01_ptr, cpu_to_le64(lv01_ptr));
+
+	sdxi->L1_tables[l2_idx] = table;
+	sdxi->L1_dma[l2_idx] = dma;
+
+	return table;
+}
+
+/*
+ * Publish the context control structure hierarchy to the SDXI
+ * implementation. L1 pages remain allocated until device teardown so a
+ * cached L2 pointer can never refer to freed memory.
+ */
 static int sdxi_publish_cxt(const struct sdxi_cxt *cxt)
 {
 	struct sdxi_cxt_ctl_cfg ctl_cfg;
 	struct sdxi_cxt_L1_cfg L1_cfg;
+	struct sdxi_cxt_L1_table *L1_table;
 	struct sdxi_cxt_L1_ent *ent;
+	u16 l2_idx;
 	u8 l1_idx;
 	int err;
 
@@ -314,9 +352,16 @@ static int sdxi_publish_cxt(const struct sdxi_cxt *cxt)
 	if (err)
 		return err;
 
+	l2_idx = ID_TO_L2_INDEX(cxt->id);
 	l1_idx = ID_TO_L1_INDEX(cxt->id);
 
-	ent = &cxt->sdxi->L1_table->entry[l1_idx];
+	mutex_lock(&cxt->sdxi->cxt_lock);
+	L1_table = sdxi_get_L1_table(cxt->sdxi, l2_idx);
+	if (!L1_table) {
+		err = -ENOMEM;
+		goto out_unlock;
+	}
+	ent = &L1_table->entry[l1_idx];
 
 	L1_cfg = (typeof(L1_cfg)) {
 		.ka          = 1,
@@ -329,7 +374,15 @@ static int sdxi_publish_cxt(const struct sdxi_cxt *cxt)
 		.opb_000_enb = cxt->sdxi->op_grp_cap,
 	};
 
-	return configure_L1_entry(ent, &L1_cfg);
+	err = configure_L1_entry(ent, &L1_cfg);
+	if (!err)
+		cxt->sdxi->L1_users[l2_idx]++;
+
+out_unlock:
+	mutex_unlock(&cxt->sdxi->cxt_lock);
+	if (err)
+		invalidate_cxt_ctl(cxt->cxt_ctl);
+	return err;
 }
 
 static void free_admin_cxt(void *ptr)
@@ -561,7 +614,9 @@ void sdxi_cxt_submit(struct sdxi_cxt *cxt, struct sdxi_slot slot,
 int sdxi_cxt_exit(struct sdxi_cxt *cxt)
 {
 	struct sdxi_dev *sdxi = cxt->sdxi;
-	struct sdxi_cxt_L1_ent *ent;
+	struct sdxi_cxt_L1_table *L1_table;
+	u16 l2_idx = ID_TO_L2_INDEX(cxt->id);
+	u8 l1_idx = ID_TO_L1_INDEX(cxt->id);
 	u8 state;
 	int err;
 
@@ -572,9 +627,15 @@ int sdxi_cxt_exit(struct sdxi_cxt *cxt)
 	if (state != CXTV_STOP_SW && state != CXTV_STOP_FN && state != CXTV_ERR_FN)
 		return -EBUSY;
 
-	ent = &sdxi->L1_table->entry[ID_TO_L1_INDEX(cxt->id)];
-	invalidate_L1_entry(ent);
+	mutex_lock(&sdxi->cxt_lock);
+	L1_table = sdxi->L1_tables[l2_idx];
+	if (WARN_ON_ONCE(!L1_table)) {
+		mutex_unlock(&sdxi->cxt_lock);
+		return -EIO;
+	}
+	invalidate_L1_entry(&L1_table->entry[l1_idx]);
 	invalidate_cxt_ctl(cxt->cxt_ctl);
+	mutex_unlock(&sdxi->cxt_lock);
 
 	err = sdxi_cxt_update(cxt);
 	if (err) {
@@ -583,6 +644,11 @@ int sdxi_cxt_exit(struct sdxi_cxt *cxt)
 			cxt->id, err);
 		return err;
 	}
+
+	mutex_lock(&sdxi->cxt_lock);
+	if (!WARN_ON_ONCE(!sdxi->L1_users[l2_idx]))
+		sdxi->L1_users[l2_idx]--;
+	mutex_unlock(&sdxi->cxt_lock);
 
 	sdxi_free_cxt(cxt);
 	return 0;

@@ -13,13 +13,16 @@
 #include <linux/dev_printk.h>
 #include <linux/idr.h>
 #include <linux/io.h>
+#include <linux/mutex.h>
 #include <linux/types.h>
 #include <linux/xarray.h>
 
+#include "hw.h"
 #include "mmio.h"
 #include "version.h"
 
-#define ID_TO_L1_INDEX(id)	((id) & 0x7F)
+#define ID_TO_L2_INDEX(id)	(((id) >> 7) & 0x1ff)
+#define ID_TO_L1_INDEX(id)	((id) & 0x7f)
 
 #define DESC_RING_BASE_PTR_SHIFT	6
 #define CXT_STATUS_PTR_SHIFT		4
@@ -77,8 +80,10 @@ struct sdxi_dev {
 
 	struct sdxi_cxt_L2_table *L2_table;
 	dma_addr_t L2_dma;
-	struct sdxi_cxt_L1_table *L1_table;
-	dma_addr_t L1_dma;
+	struct sdxi_cxt_L1_table *L1_tables[SDXI_L2_TABLE_ENTRIES];
+	dma_addr_t L1_dma[SDXI_L2_TABLE_ENTRIES];
+	u16 L1_users[SDXI_L2_TABLE_ENTRIES];
+	struct mutex cxt_lock;		/* context table serialization */
 
 	struct dma_pool *cxt_ctl_pool;
 
