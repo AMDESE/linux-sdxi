@@ -279,6 +279,16 @@ void sdxi_dev_force_quiesce(struct sdxi_dev *sdxi)
 		sdxi->bus_ops->force_quiesce(sdxi);
 }
 
+void sdxi_dev_fail(struct sdxi_dev *sdxi)
+{
+	mutex_lock(&sdxi->admin_lock);
+	if (!sdxi->admin_dead) {
+		sdxi->admin_dead = true;
+		sdxi_dev_force_quiesce(sdxi);
+	}
+	mutex_unlock(&sdxi->admin_lock);
+}
+
 /* Stop the function and discard inherited MMIO configuration. */
 static int sdxi_fn_prepare(struct sdxi_dev *sdxi)
 {

@@ -10,8 +10,12 @@
 #include <linux/dma-mapping.h>
 #include <linux/idr.h>
 #include <linux/io.h>
+#include <linux/mutex.h>
+#include <linux/refcount.h>
 #include <linux/string.h>
 #include <linux/types.h>
+#include <linux/wait.h>
+#include <linux/workqueue.h>
 
 #include "hw.h"
 #include "ring.h"
@@ -20,6 +24,7 @@
 
 struct sdxi_completion;
 struct sdxi_cst_pool;
+struct sdxi_process;
 
 /* Use a 4 KiB AKey table, the minimum architectural size. */
 struct sdxi_akey_table {
@@ -35,15 +40,33 @@ static inline u8 akey_table_order(const struct sdxi_akey_table *tbl)
 
 struct sdxi_cxt {
 	struct sdxi_dev *sdxi;
+	refcount_t refs;
+	struct mutex cleanup_lock;	/* lifetime state serialization */
+	wait_queue_head_t poll_wq;
+	struct delayed_work cleanup_work;
 	u16 id;
+	u32 mmap_gen;
 	u32 pasid;
 	u32 opb_000_enb;
+	u32 quiesce_cst_flags;
+	unsigned int vma_refs;
 	bool pasid_valid;
+	bool handle_closed;
+	bool mm_dead;
+	bool fatal;
+	bool quiesced;
+	bool cleanup_stopping;
+	bool resources_released;
+	bool registered;
+	bool published;
+	bool update_pending;
+	bool started;
 
 	struct sdxi_cxt_ctl *cxt_ctl;
 	dma_addr_t cxt_ctl_dma;
 
 	struct ida akey_ida;
+	struct mutex akey_lock;		/* AKey table serialization */
 	struct sdxi_akey_table *akey_table;
 	dma_addr_t akey_table_dma;
 
@@ -51,10 +74,14 @@ struct sdxi_cxt {
 	struct sdxi_cst_pool *cst_pool;
 
 	struct sdxi_ring_state *ring_state;
+	struct sdxi_process *process;
 };
 
 int sdxi_admin_cxt_init(struct sdxi_dev *sdxi);
 struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi);
+struct sdxi_cxt *sdxi_ucxt_new(struct sdxi_dev *sdxi, u32 ring_entries,
+			       u64 ds_ring, u64 write_index, u64 cxt_sts,
+			       u32 pasid, u32 opb_000_enb);
 /*
  * Caller must exclude users and stop the client before release. An update or
  * synchronization failure retains the invalidated context for device teardown;
@@ -62,6 +89,18 @@ struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi);
  */
 int sdxi_cxt_exit(struct sdxi_cxt *cxt);
 void sdxi_client_cxts_exit(struct sdxi_dev *sdxi);
+void sdxi_cxt_get(struct sdxi_cxt *cxt);
+void sdxi_cxt_put(struct sdxi_cxt *cxt);
+struct sdxi_cxt *sdxi_cxt_get_by_id(struct sdxi_dev *sdxi, u16 cxt_id);
+int sdxi_cxt_quiesce(struct sdxi_cxt *cxt, unsigned int timeout_ms,
+		     u32 *cst_flags);
+bool sdxi_cxt_is_user(const struct sdxi_cxt *cxt);
+bool sdxi_cxt_is_fatal(const struct sdxi_cxt *cxt);
+void sdxi_cxt_kill(struct sdxi_cxt *cxt);
+void sdxi_cxt_release_user_handle(struct sdxi_cxt *cxt);
+int sdxi_cxt_notify_mm_release(struct sdxi_cxt *cxt);
+void sdxi_cxt_vma_open(struct sdxi_cxt *cxt);
+void sdxi_cxt_vma_close(struct sdxi_cxt *cxt);
 
 enum sdxi_submit_flags {
 	SDXI_CXT_SUBMIT_KICK  = BIT(0),

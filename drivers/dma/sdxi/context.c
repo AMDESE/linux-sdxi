@@ -18,6 +18,7 @@
 #include <linux/idr.h>
 #include <linux/iommu.h>
 #include <linux/overflow.h>
+#include <linux/poll.h>
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <asm/barrier.h>
@@ -28,11 +29,13 @@
 #include "context.h"
 #include "descriptor.h"
 #include "hw.h"
+#include "process.h"
 #include "ring.h"
 #include "sdxi.h"
 #include "submission.h"
 
 #define DEFAULT_DESC_RING_ENTRIES 1024
+#define SDXI_CXT_QUIESCE_TIMEOUT_MS 5000U
 
 enum {
 	/*
@@ -42,6 +45,8 @@ enum {
 	SDXI_ADMIN_CXT_ID = 0,
 };
 
+static void sdxi_cxt_cleanup_workfn(struct work_struct *work);
+
 /*
  * Free context and its resources. @cxt may be partially allocated but
  * must have ->sdxi set.
@@ -50,8 +55,8 @@ static void sdxi_free_cxt(struct sdxi_cxt *cxt)
 {
 	struct sdxi_dev *sdxi = cxt->sdxi;
 
-	/* Release the id if this is a client context. */
-	if (cxt->id)
+	/* Release the id if this is a registered client context. */
+	if (cxt->registered)
 		WARN_ON(xa_erase(&sdxi->client_cxts, cxt->id) != cxt);
 
 	if (cxt->cxt_ctl)
@@ -65,6 +70,8 @@ static void sdxi_free_cxt(struct sdxi_cxt *cxt)
 	if (cxt->sq)
 		sdxi_sq_free(sdxi, cxt->sq);
 	ida_destroy(&cxt->akey_ida);
+	mutex_destroy(&cxt->akey_lock);
+	mutex_destroy(&cxt->cleanup_lock);
 	kfree(cxt->ring_state);
 	kfree(cxt);
 }
@@ -81,6 +88,11 @@ static struct sdxi_cxt *sdxi_alloc_cxt(struct sdxi_dev *sdxi)
 		return NULL;
 
 	cxt->sdxi = sdxi;
+	refcount_set(&cxt->refs, 1);
+	mutex_init(&cxt->cleanup_lock);
+	mutex_init(&cxt->akey_lock);
+	init_waitqueue_head(&cxt->poll_wq);
+	INIT_DELAYED_WORK(&cxt->cleanup_work, sdxi_cxt_cleanup_workfn);
 	ida_init(&cxt->akey_ida);
 	cxt->pasid = IOMMU_NO_PASID;
 	cxt->opb_000_enb = sdxi->op_grp_cap;
@@ -97,6 +109,81 @@ static struct sdxi_cxt *sdxi_alloc_cxt(struct sdxi_dev *sdxi)
 		return NULL;
 
 	return_ptr(cxt);
+}
+
+/* Claim completion storage before making a ring reservation irrevocable. */
+static int sdxi_cxt_reserve(struct sdxi_cxt *cxt, size_t nr,
+			    struct sdxi_ring_resv *resv,
+			    struct sdxi_completion *comp)
+{
+	int err;
+
+	err = sdxi_cst_pool_get_wait(cxt->cst_pool, comp);
+	if (err)
+		return err;
+
+	err = sdxi_ring_reserve(cxt->ring_state, nr, resv);
+	if (err)
+		sdxi_cst_pool_put(cxt->cst_pool, comp->cst_blk);
+
+	return err;
+}
+
+static int sdxi_cxt_poll_completion(struct sdxi_cxt *cxt,
+				    const struct sdxi_completion *comp)
+{
+	int err = sdxi_cst_blk_poll(comp->cst_blk);
+
+	/*
+	 * A timeout does not end hardware ownership. Keep these administrative
+	 * blocks claimed until context teardown, even if they complete later.
+	 * Repeated timeouts can exhaust the pool; allocation then times out too.
+	 */
+	if (err != -ETIMEDOUT)
+		sdxi_cst_pool_put(cxt->cst_pool, comp->cst_blk);
+	sdxi_ring_wake_up(cxt->ring_state);
+
+	return err;
+}
+
+/*
+ * Signal the function that a client context's control structures have
+ * been modified so it discards any privately cached copies of them.
+ * DSC_SYNC.CXT is required before the operation can be considered
+ * complete.
+ */
+static int sdxi_cxt_update_locked(const struct sdxi_cxt *cxt)
+{
+	struct sdxi_cxt *adm = to_admin_cxt(cxt);
+	struct sdxi_slot upd, sync;
+	struct sdxi_ring_resv resv;
+	struct sdxi_completion comp;
+	int err;
+
+	might_sleep();
+	lockdep_assert_held(&cxt->sdxi->admin_lock);
+	if (cxt->sdxi->admin_dead)
+		return -EIO;
+
+	err = sdxi_cxt_reserve(adm, 2, &resv, &comp);
+	if (err)
+		return err;
+
+	upd = sdxi_ring_resv_slot(&resv, 0);
+	sync = sdxi_ring_resv_slot(&resv, 1);
+
+	sdxi_encode_cxt_upd(sdxi_slot_desc(upd), &(const struct sdxi_cxt_upd) {
+			.level = SDXI_CXT_UPD_LVL_L1,
+			.range = sdxi_cxt_range_single(cxt->id),
+		});
+	sdxi_encode_sync(sdxi_slot_desc(sync), &(const struct sdxi_sync) {
+			.filter = SDXI_SYNC_FLT_CXT,
+			.range = sdxi_cxt_range_single(cxt->id),
+		});
+	sdxi_cxt_submit(adm, upd, NULL, 0);
+	sdxi_cxt_submit(adm, sync, &comp, SDXI_CXT_SUBMIT_KICK);
+
+	return sdxi_cxt_poll_completion(adm, &comp);
 }
 
 static int sdxi_alloc_kernel_submission(struct sdxi_cxt *cxt)
@@ -259,12 +346,33 @@ sdxi_get_L1_table(struct sdxi_dev *sdxi, u16 l2_idx)
 	return table;
 }
 
+static void sdxi_put_L1_table(struct sdxi_dev *sdxi, u16 l2_idx)
+{
+	struct sdxi_cxt_L1_table *table;
+	struct sdxi_cxt_L2_ent *L2_ent;
+
+	lockdep_assert_held(&sdxi->cxt_lock);
+
+	if (sdxi->L1_users[l2_idx])
+		return;
+
+	table = sdxi->L1_tables[l2_idx];
+	if (!table)
+		return;
+
+	L2_ent = &sdxi->L2_table->entry[l2_idx];
+	WRITE_ONCE(L2_ent->lv01_ptr, 0);
+	dma_wmb();
+
+	sdxi->L1_tables[l2_idx] = NULL;
+	sdxi->L1_dma[l2_idx] = 0;
+}
+
 /*
  * Publish the context control structure hierarchy to the SDXI
- * implementation. L1 pages remain allocated until device teardown so a
- * cached L2 pointer can never refer to freed memory.
+ * implementation. This may allocate an L1 table page, so it is fallible.
  */
-static int sdxi_publish_cxt(const struct sdxi_cxt *cxt,
+static int sdxi_publish_cxt(struct sdxi_cxt *cxt,
 			    const struct sdxi_cxt_ctl_cfg *ctl_cfg)
 {
 	struct sdxi_cxt_L1_cfg L1_cfg;
@@ -311,19 +419,325 @@ static int sdxi_publish_cxt(const struct sdxi_cxt *cxt,
 
 out_unlock:
 	mutex_unlock(&cxt->sdxi->cxt_lock);
-	if (err)
+	if (err) {
 		invalidate_cxt_ctl(cxt->cxt_ctl);
+	} else {
+		cxt->published = true;
+		cxt->update_pending = false;
+	}
 	return err;
+}
+
+/* Invalidate a context. */
+static void sdxi_rescind_cxt(struct sdxi_cxt *cxt)
+{
+	struct sdxi_cxt_L1_table *L1_table;
+	struct sdxi_dev *sdxi = cxt->sdxi;
+	u16 l2_idx = ID_TO_L2_INDEX(cxt->id);
+	u8 l1_idx = ID_TO_L1_INDEX(cxt->id);
+
+	if (!cxt->published)
+		return;
+
+	mutex_lock(&sdxi->cxt_lock);
+	L1_table = sdxi->L1_tables[l2_idx];
+	if (WARN_ON_ONCE(!L1_table))
+		goto out_unlock;
+
+	invalidate_L1_entry(&L1_table->entry[l1_idx]);
+	if (WARN_ON_ONCE(!sdxi->L1_users[l2_idx]))
+		goto out_unlock;
+
+	sdxi->L1_users[l2_idx]--;
+
+out_unlock:
+	mutex_unlock(&sdxi->cxt_lock);
+	invalidate_cxt_ctl(cxt->cxt_ctl);
+	cxt->published = false;
+	cxt->update_pending = true;
+}
+
+/* Empty L1 tables remain published until the function has stopped. */
+static void sdxi_cxt_finish_unpublish(struct sdxi_cxt *cxt,
+				      bool function_stopped)
+{
+	struct sdxi_dev *sdxi = cxt->sdxi;
+	u16 l2_idx = ID_TO_L2_INDEX(cxt->id);
+
+	if (!cxt->update_pending)
+		return;
+
+	if (function_stopped) {
+		mutex_lock(&sdxi->cxt_lock);
+		sdxi_put_L1_table(sdxi, l2_idx);
+		mutex_unlock(&sdxi->cxt_lock);
+	}
+	cxt->update_pending = false;
+}
+
+static int sdxi_cxt_unpublish(struct sdxi_cxt *cxt)
+{
+	int err;
+
+	mutex_lock(&cxt->sdxi->admin_lock);
+	if (cxt->published)
+		sdxi_rescind_cxt(cxt);
+	if (!cxt->update_pending) {
+		err = 0;
+		goto out_unlock;
+	}
+
+	err = sdxi_cxt_update_locked(cxt);
+	if (!err)
+		sdxi_cxt_finish_unpublish(cxt, false);
+
+out_unlock:
+	mutex_unlock(&cxt->sdxi->admin_lock);
+	return err;
+}
+
+/* Hardware has stopped, so no update/sync is needed before freeing tables. */
+static void sdxi_cxt_force_unpublish(struct sdxi_cxt *cxt)
+{
+	if (cxt->published)
+		sdxi_rescind_cxt(cxt);
+	sdxi_cxt_finish_unpublish(cxt, true);
+}
+
+void sdxi_cxt_get(struct sdxi_cxt *cxt)
+{
+	refcount_inc(&cxt->refs);
+}
+
+void sdxi_cxt_put(struct sdxi_cxt *cxt)
+{
+	if (cxt && refcount_dec_and_test(&cxt->refs))
+		sdxi_free_cxt(cxt);
+}
+
+struct sdxi_cxt *sdxi_cxt_get_by_id(struct sdxi_dev *sdxi, u16 cxt_id)
+{
+	struct sdxi_cxt *cxt;
+
+	xa_lock(&sdxi->client_cxts);
+	cxt = xa_load(&sdxi->client_cxts, cxt_id);
+	if (cxt && !refcount_inc_not_zero(&cxt->refs))
+		cxt = NULL;
+	xa_unlock(&sdxi->client_cxts);
+
+	return cxt;
+}
+
+/* Free resources only after update/sync or after the function has stopped. */
+static void sdxi_cxt_release_resources(struct sdxi_cxt *cxt)
+{
+	struct sdxi_dev *sdxi = cxt->sdxi;
+
+	if (cxt->registered) {
+		WARN_ON(xa_erase(&sdxi->client_cxts, cxt->id) != cxt);
+		cxt->registered = false;
+	}
+
+	if (cxt->cxt_ctl) {
+		dma_pool_free(sdxi->cxt_ctl_pool, cxt->cxt_ctl,
+			      cxt->cxt_ctl_dma);
+		cxt->cxt_ctl = NULL;
+		cxt->cxt_ctl_dma = 0;
+	}
+	if (cxt->akey_table) {
+		mutex_lock(&cxt->akey_lock);
+		dma_free_coherent(sdxi->dev, sizeof(*cxt->akey_table),
+				  cxt->akey_table, cxt->akey_table_dma);
+		cxt->akey_table = NULL;
+		cxt->akey_table_dma = 0;
+		mutex_unlock(&cxt->akey_lock);
+	}
+	if (cxt->cst_pool) {
+		sdxi_cst_pool_destroy(sdxi, cxt->cst_pool);
+		cxt->cst_pool = NULL;
+	}
+	if (cxt->sq) {
+		sdxi_sq_free(sdxi, cxt->sq);
+		cxt->sq = NULL;
+	}
+	kfree(cxt->ring_state);
+	cxt->ring_state = NULL;
+}
+
+static void sdxi_cxt_finish_release(struct sdxi_cxt *cxt,
+				    struct sdxi_process *process)
+{
+	struct iommu_sva *sva = NULL;
+	u32 pasid = 0;
+
+	wake_up_poll(&cxt->poll_wq, EPOLLHUP);
+	sdxi_cxt_release_resources(cxt);
+
+	if (process) {
+		mutex_lock(&process->mutex);
+		sva = sdxi_process_detach_sva_locked(process, &pasid);
+		mutex_unlock(&process->mutex);
+
+		sdxi_process_unbind_sva(process, sva, pasid);
+
+		/* Keep CREATE_CXT excluded until the old SVA is fully unbound. */
+		mutex_lock(&process->mutex);
+		if (process->cxt == cxt)
+			process->cxt = NULL;
+		mutex_unlock(&process->mutex);
+		sdxi_process_put(process);
+	}
+
+	/* Drop the context's base ownership reference. */
+	sdxi_cxt_put(cxt);
+}
+
+static bool sdxi_cxt_cleanup_requested(const struct sdxi_cxt *cxt)
+{
+	return cxt->handle_closed || cxt->mm_dead || READ_ONCE(cxt->fatal);
+}
+
+static void sdxi_cxt_queue_cleanup_locked(struct sdxi_cxt *cxt,
+					  unsigned long delay)
+{
+	lockdep_assert_held(&cxt->cleanup_lock);
+
+	if (!cxt->cleanup_stopping && !cxt->resources_released)
+		mod_delayed_work(system_percpu_wq, &cxt->cleanup_work, delay);
+}
+
+static int sdxi_cxt_quiesce_locked(struct sdxi_cxt *cxt,
+				   unsigned int timeout_ms, u32 *cst_flags,
+				   bool interruptible)
+{
+	u32 flags = 0;
+	int ret = 0;
+
+	lockdep_assert_held(&cxt->cleanup_lock);
+
+	if (cxt->resources_released)
+		return -ENODEV;
+	if (cxt->quiesced)
+		goto out;
+
+	if (!cxt->started || sdxi_cxt_is_admin(cxt))
+		goto quiesced;
+
+	if (!timeout_ms)
+		timeout_ms = SDXI_CXT_QUIESCE_TIMEOUT_MS;
+
+	ret = sdxi_adm_stop_cxt_sync(cxt, timeout_ms, &flags,
+				     interruptible);
+	if (ret)
+		return ret;
+
+quiesced:
+	cxt->started = false;
+	cxt->quiesced = true;
+	cxt->quiesce_cst_flags = flags;
+out:
+	if (cst_flags)
+		*cst_flags = cxt->quiesce_cst_flags;
+	return 0;
+}
+
+static void sdxi_cxt_cleanup_workfn(struct work_struct *work)
+{
+	struct sdxi_cxt *cxt = container_of(to_delayed_work(work),
+					     struct sdxi_cxt, cleanup_work);
+	struct sdxi_process *process = NULL;
+	bool force_release = false;
+	bool destroy = false;
+	int ret;
+
+	mutex_lock(&cxt->cleanup_lock);
+	if (cxt->resources_released || !sdxi_cxt_cleanup_requested(cxt))
+		goto out_unlock;
+
+	if (!cxt->quiesced) {
+		ret = sdxi_cxt_quiesce_locked(cxt, 0, NULL, false);
+		if (ret) {
+			dev_err(cxt->sdxi->dev,
+				"failed to quiesce context %u: %d; quiescing function\n",
+				cxt->id, ret);
+			sdxi_dev_fail(cxt->sdxi);
+			cxt->started = false;
+			cxt->quiesced = true;
+			cxt->quiesce_cst_flags = 0;
+			force_release = true;
+		}
+	}
+	if (cxt->vma_refs)
+		goto out_unlock;
+
+	if (!force_release) {
+		ret = sdxi_cxt_unpublish(cxt);
+		if (ret) {
+			dev_err(cxt->sdxi->dev,
+				"failed to synchronize context %u release: %d; quiescing function\n",
+				cxt->id, ret);
+			sdxi_dev_fail(cxt->sdxi);
+			force_release = true;
+		}
+	}
+	if (force_release)
+		sdxi_cxt_force_unpublish(cxt);
+
+	cxt->resources_released = true;
+	cxt->cleanup_stopping = true;
+	process = cxt->process;
+	cxt->process = NULL;
+	destroy = true;
+
+out_unlock:
+	mutex_unlock(&cxt->cleanup_lock);
+
+	if (destroy)
+		sdxi_cxt_finish_release(cxt, process);
+}
+
+/* Device teardown has already stopped hardware, so force resource release. */
+static void sdxi_cxt_force_exit(struct sdxi_cxt *cxt)
+{
+	struct sdxi_process *process = NULL;
+	bool destroy = false;
+
+	if (!cxt || !refcount_inc_not_zero(&cxt->refs))
+		return;
+
+	mutex_lock(&cxt->cleanup_lock);
+	cxt->cleanup_stopping = true;
+	mutex_unlock(&cxt->cleanup_lock);
+	cancel_delayed_work_sync(&cxt->cleanup_work);
+
+	mutex_lock(&cxt->cleanup_lock);
+	if (!cxt->resources_released) {
+		sdxi_cxt_force_unpublish(cxt);
+		cxt->started = false;
+		cxt->quiesced = true;
+		cxt->resources_released = true;
+		process = cxt->process;
+		cxt->process = NULL;
+		destroy = true;
+	}
+	mutex_unlock(&cxt->cleanup_lock);
+
+	if (destroy)
+		sdxi_cxt_finish_release(cxt, process);
+	/* Drop the temporary reference acquired above. */
+	sdxi_cxt_put(cxt);
 }
 
 static void free_admin_cxt(void *ptr)
 {
 	struct sdxi_dev *sdxi = ptr;
 
-	sdxi_free_cxt(sdxi->admin_cxt);
+	sdxi_cxt_force_exit(sdxi->admin_cxt);
 }
 
-static int sdxi_cxt_set_doorbell(struct sdxi_cxt *cxt);
+static int sdxi_cxt_doorbell_offset(const struct sdxi_cxt *cxt,
+				    size_t *offset);
+static int sdxi_cxt_set_kernel_doorbell(struct sdxi_cxt *cxt);
 
 int sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
 {
@@ -343,7 +757,7 @@ int sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
 	/* SDXI 1.0 4.1.8.4.b: Set CXT_STS.state to CXTV_RUN. */
 	sq->cxt_sts.state = FIELD_PREP(SDXI_CXT_STS_STATE, CXTV_RUN);
 	cxt->id = SDXI_ADMIN_CXT_ID;
-	err = sdxi_cxt_set_doorbell(cxt);
+	err = sdxi_cxt_set_kernel_doorbell(cxt);
 	if (err)
 		return err;
 
@@ -359,6 +773,7 @@ int sdxi_admin_cxt_init(struct sdxi_dev *sdxi)
 	if (err)
 		return err;
 
+	cxt->started = true;
 	sdxi->admin_cxt = no_free_ptr(cxt);
 
 	return devm_add_action_or_reset(sdxi->dev, free_admin_cxt, sdxi);
@@ -400,20 +815,35 @@ static bool sdxi_cxt_id_valid(const struct sdxi_cxt_id *cxt_id)
 	return cxt_id->index > 0;
 }
 
-static int sdxi_cxt_set_doorbell(struct sdxi_cxt *cxt)
+static int sdxi_cxt_doorbell_offset(const struct sdxi_cxt *cxt,
+				    size_t *offset)
 {
 	struct sdxi_dev *sdxi = cxt->sdxi;
-	size_t offset;
+	size_t value;
 
 	if (check_mul_overflow((size_t)cxt->id, (size_t)sdxi->db_stride,
-			       &offset) ||
-	    offset > sdxi->db_size ||
-	    sdxi->db_stride > sdxi->db_size - offset)
+			       &value) ||
+	    value > sdxi->db_size ||
+	    sdxi->db_stride > sdxi->db_size - value)
 		return -ERANGE;
+
+	if (offset)
+		*offset = value;
+	return 0;
+}
+
+static int sdxi_cxt_set_kernel_doorbell(struct sdxi_cxt *cxt)
+{
+	size_t offset;
+	int err;
 
 	if (WARN_ON_ONCE(!cxt->sq))
 		return -EINVAL;
-	cxt->sq->doorbell = sdxi->dbs + offset;
+	err = sdxi_cxt_doorbell_offset(cxt, &offset);
+	if (err)
+		return err;
+
+	cxt->sq->doorbell = cxt->sdxi->dbs + offset;
 	return 0;
 }
 
@@ -427,7 +857,32 @@ static void sdxi_cxt_id_assign(struct sdxi_cxt *cxt, struct sdxi_cxt_id *cxt_id)
 	WARN_ON(xa_store(&cxt_id->sdxi->client_cxts,
 			 cxt_id->index, cxt, GFP_KERNEL));
 	cxt->id = cxt_id->index;
+	cxt->registered = true;
 	cxt_id->index = 0;
+}
+
+static struct sdxi_cxt *sdxi_alloc_client_cxt(struct sdxi_dev *sdxi)
+{
+	CLASS(sdxi_cxt_id, id)(sdxi);
+	struct sdxi_cxt *cxt __free(sdxi_cxt) = NULL;
+
+	if (!sdxi_cxt_id_valid(&id))
+		return NULL;
+
+	cxt = sdxi_alloc_cxt(sdxi);
+	if (!cxt)
+		return NULL;
+
+	sdxi_cxt_id_assign(cxt, &id);
+	if (sdxi_cxt_doorbell_offset(cxt, NULL))
+		return NULL;
+	mutex_lock(&sdxi->cxt_lock);
+	cxt->mmap_gen = ++sdxi->mmap_gen;
+	if (!cxt->mmap_gen)
+		cxt->mmap_gen = ++sdxi->mmap_gen;
+	mutex_unlock(&sdxi->cxt_lock);
+
+	return_ptr(cxt);
 }
 
 /*
@@ -437,27 +892,19 @@ static void sdxi_cxt_id_assign(struct sdxi_cxt *cxt, struct sdxi_cxt_id *cxt_id)
 struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi)
 {
 	struct sdxi_cxt_ctl_cfg ctl_cfg;
+	struct sdxi_cxt *cxt;
 	int err;
 
-	/*
-	 * Ensure an ID is available before allocating memory for the
-	 * context and its control structures.
-	 */
-	CLASS(sdxi_cxt_id, id)(sdxi);
-	if (!sdxi_cxt_id_valid(&id))
-		return NULL;
-
-	struct sdxi_cxt *cxt __free(sdxi_cxt) = sdxi_alloc_cxt(sdxi);
+	cxt = sdxi_alloc_client_cxt(sdxi);
 	if (!cxt)
 		return NULL;
 
 	err = sdxi_alloc_kernel_submission(cxt);
 	if (err)
-		return NULL;
-
-	sdxi_cxt_id_assign(cxt, &id);
-	if (sdxi_cxt_set_doorbell(cxt))
-		return NULL;
+		goto put_cxt;
+	err = sdxi_cxt_set_kernel_doorbell(cxt);
+	if (err)
+		goto put_cxt;
 
 	ctl_cfg = (typeof(ctl_cfg)) {
 		.se              = 1,
@@ -468,9 +915,41 @@ struct sdxi_cxt *sdxi_cxt_new(struct sdxi_dev *sdxi)
 		.write_index_ptr = sdxi_sq_write_index_dma(cxt->sq),
 	};
 	if (sdxi_publish_cxt(cxt, &ctl_cfg))
+		goto put_cxt;
+
+	return cxt;
+
+put_cxt:
+	sdxi_cxt_put(cxt);
+	return NULL;
+}
+
+struct sdxi_cxt *sdxi_ucxt_new(struct sdxi_dev *sdxi, u32 ring_entries,
+			       u64 ds_ring, u64 write_index, u64 cxt_sts,
+			       u32 pasid, u32 opb_000_enb)
+{
+	struct sdxi_cxt_ctl_cfg ctl_cfg = {
+		.ds_ring_ptr = ds_ring,
+		.ds_ring_sz = ring_entries,
+		.cxt_sts_ptr = cxt_sts,
+		.write_index_ptr = write_index,
+	};
+	struct sdxi_cxt *cxt;
+
+	cxt = sdxi_alloc_client_cxt(sdxi);
+	if (!cxt)
 		return NULL;
 
-	return_ptr(cxt);
+	cxt->pasid_valid = true;
+	cxt->pasid = pasid;
+	cxt->opb_000_enb = opb_000_enb;
+
+	if (sdxi_publish_cxt(cxt, &ctl_cfg)) {
+		sdxi_cxt_put(cxt);
+		return NULL;
+	}
+
+	return cxt;
 }
 
 /*
@@ -481,10 +960,17 @@ void sdxi_client_cxts_exit(struct sdxi_dev *sdxi)
 {
 	struct sdxi_cxt *cxt;
 	unsigned long index;
+	size_t l2_idx;
 
 	xa_for_each(&sdxi->client_cxts, index, cxt)
-		sdxi_free_cxt(cxt);
+		sdxi_cxt_force_exit(cxt);
 	xa_destroy(&sdxi->client_cxts);
+
+	/* Reclaim empty pages retained to keep L2 pointers stable at runtime. */
+	mutex_lock(&sdxi->cxt_lock);
+	for (l2_idx = 0; l2_idx < ARRAY_SIZE(sdxi->L1_tables); l2_idx++)
+		sdxi_put_L1_table(sdxi, l2_idx);
+	mutex_unlock(&sdxi->cxt_lock);
 }
 
 /*
@@ -529,43 +1015,168 @@ void sdxi_cxt_submit(struct sdxi_cxt *cxt, struct sdxi_slot slot,
  */
 int sdxi_cxt_exit(struct sdxi_cxt *cxt)
 {
-	struct sdxi_dev *sdxi = cxt->sdxi;
-	struct sdxi_cxt_L1_table *L1_table;
-	u16 l2_idx = ID_TO_L2_INDEX(cxt->id);
-	u8 l1_idx = ID_TO_L1_INDEX(cxt->id);
-	u8 state;
-	int err;
+	struct sdxi_process *process = NULL;
+	bool destroy = false;
+	int ret = 0;
 
+	if (!cxt)
+		return -EINVAL;
 	if (WARN_ON(sdxi_cxt_is_admin(cxt)))
 		return -EINVAL;
+	if (!refcount_inc_not_zero(&cxt->refs))
+		return -ENODEV;
 
-	state = FIELD_GET(SDXI_CXT_STS_STATE, READ_ONCE(cxt->sq->cxt_sts.state));
-	if (state != CXTV_STOP_SW && state != CXTV_STOP_FN && state != CXTV_ERR_FN)
-		return -EBUSY;
+	mutex_lock(&cxt->cleanup_lock);
+	cxt->cleanup_stopping = true;
+	mutex_unlock(&cxt->cleanup_lock);
+	cancel_delayed_work_sync(&cxt->cleanup_work);
 
-	mutex_lock(&sdxi->cxt_lock);
-	L1_table = sdxi->L1_tables[l2_idx];
-	if (WARN_ON_ONCE(!L1_table)) {
-		mutex_unlock(&sdxi->cxt_lock);
-		return -EIO;
-	}
-	invalidate_L1_entry(&L1_table->entry[l1_idx]);
-	invalidate_cxt_ctl(cxt->cxt_ctl);
-	mutex_unlock(&sdxi->cxt_lock);
-
-	err = sdxi_adm_update_cxt(cxt);
-	if (err) {
-		dev_err(sdxi->dev,
-			"context %u release failed (%d), retaining resources until function shutdown\n",
-			cxt->id, err);
-		return err;
+	mutex_lock(&cxt->cleanup_lock);
+	if (cxt->resources_released)
+		goto out_unlock;
+	if (cxt->vma_refs) {
+		ret = -EBUSY;
+		goto out_unlock;
 	}
 
-	mutex_lock(&sdxi->cxt_lock);
-	if (!WARN_ON_ONCE(!sdxi->L1_users[l2_idx]))
-		sdxi->L1_users[l2_idx]--;
-	mutex_unlock(&sdxi->cxt_lock);
+	ret = sdxi_cxt_quiesce_locked(cxt, 0, NULL, false);
+	if (ret)
+		goto out_retain;
 
-	sdxi_free_cxt(cxt);
-	return 0;
+	ret = sdxi_cxt_unpublish(cxt);
+	if (ret)
+		goto out_retain;
+
+	cxt->resources_released = true;
+	process = cxt->process;
+	cxt->process = NULL;
+	destroy = true;
+	goto out_unlock;
+
+out_retain:
+	dev_err(cxt->sdxi->dev,
+		"context %u release failed (%d), retaining resources until function shutdown\n",
+		cxt->id, ret);
+out_unlock:
+	mutex_unlock(&cxt->cleanup_lock);
+
+	if (destroy)
+		sdxi_cxt_finish_release(cxt, process);
+	/* Drop the temporary reference acquired above. */
+	sdxi_cxt_put(cxt);
+	return ret;
+}
+
+int sdxi_cxt_quiesce(struct sdxi_cxt *cxt, unsigned int timeout_ms,
+		     u32 *cst_flags)
+{
+	int ret;
+
+	if (!cxt)
+		return -EINVAL;
+
+	mutex_lock(&cxt->cleanup_lock);
+	ret = sdxi_cxt_quiesce_locked(cxt, timeout_ms, cst_flags, true);
+	if (!ret && sdxi_cxt_cleanup_requested(cxt))
+		sdxi_cxt_queue_cleanup_locked(cxt, 0);
+	mutex_unlock(&cxt->cleanup_lock);
+
+	return ret;
+}
+
+bool sdxi_cxt_is_user(const struct sdxi_cxt *cxt)
+{
+	return cxt && cxt->id && READ_ONCE(cxt->pasid_valid) &&
+	       READ_ONCE(cxt->process);
+}
+
+bool sdxi_cxt_is_fatal(const struct sdxi_cxt *cxt)
+{
+	return !cxt || READ_ONCE(cxt->fatal);
+}
+
+void sdxi_cxt_kill(struct sdxi_cxt *cxt)
+{
+	if (!cxt)
+		return;
+
+	mutex_lock(&cxt->cleanup_lock);
+	if (cxt->fatal) {
+		mutex_unlock(&cxt->cleanup_lock);
+		return;
+	}
+	cxt->fatal = true;
+	if (sdxi_cxt_is_user(cxt))
+		sdxi_cxt_queue_cleanup_locked(cxt, 0);
+	mutex_unlock(&cxt->cleanup_lock);
+
+	wake_up_poll(&cxt->poll_wq, EPOLLERR);
+}
+
+void sdxi_cxt_release_user_handle(struct sdxi_cxt *cxt)
+{
+	if (!cxt)
+		return;
+
+	mutex_lock(&cxt->cleanup_lock);
+	cxt->handle_closed = true;
+	if (!cxt->resources_released)
+		sdxi_cxt_queue_cleanup_locked(cxt, 0);
+	mutex_unlock(&cxt->cleanup_lock);
+}
+
+int sdxi_cxt_notify_mm_release(struct sdxi_cxt *cxt)
+{
+	int ret = 0;
+
+	if (!cxt)
+		return -EINVAL;
+
+	mutex_lock(&cxt->cleanup_lock);
+	cxt->mm_dead = true;
+	if (!cxt->resources_released) {
+		ret = sdxi_cxt_quiesce_locked(cxt, 0, NULL, false);
+		if (ret) {
+			dev_err(cxt->sdxi->dev,
+				"failed to quiesce context %u during mm release: %d; quiescing function\n",
+				cxt->id, ret);
+			sdxi_dev_fail(cxt->sdxi);
+			cxt->started = false;
+			cxt->quiesced = true;
+			cxt->quiesce_cst_flags = 0;
+		}
+		sdxi_cxt_queue_cleanup_locked(cxt, 0);
+	}
+	mutex_unlock(&cxt->cleanup_lock);
+
+	return ret;
+}
+
+void sdxi_cxt_vma_open(struct sdxi_cxt *cxt)
+{
+	if (!cxt)
+		return;
+
+	sdxi_cxt_get(cxt);
+	mutex_lock(&cxt->cleanup_lock);
+	cxt->vma_refs++;
+	mutex_unlock(&cxt->cleanup_lock);
+}
+
+void sdxi_cxt_vma_close(struct sdxi_cxt *cxt)
+{
+	if (!cxt)
+		return;
+
+	mutex_lock(&cxt->cleanup_lock);
+	if (WARN_ON_ONCE(!cxt->vma_refs))
+		goto out_unlock;
+
+	cxt->vma_refs--;
+	if (!cxt->resources_released && sdxi_cxt_cleanup_requested(cxt))
+		sdxi_cxt_queue_cleanup_locked(cxt, 0);
+
+out_unlock:
+	mutex_unlock(&cxt->cleanup_lock);
+	sdxi_cxt_put(cxt);
 }

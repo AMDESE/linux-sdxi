@@ -143,8 +143,13 @@ int sdxi_adm_start_cxt_sync(struct sdxi_cxt *cxt, unsigned int timeout_ms,
 	if (ret)
 		return ret;
 
-	return sdxi_adm_submit(to_admin_cxt(cxt), descs, ARRAY_SIZE(descs),
-			       timeout_ms, cst_flags, interruptible);
+	/* A failed or interrupted wait can leave the context running. */
+	WRITE_ONCE(cxt->quiesced, false);
+	WRITE_ONCE(cxt->started, true);
+	ret = sdxi_adm_submit(to_admin_cxt(cxt), descs, ARRAY_SIZE(descs),
+			      timeout_ms, cst_flags, interruptible);
+
+	return ret;
 }
 
 int sdxi_adm_stop_cxt_sync(struct sdxi_cxt *cxt, unsigned int timeout_ms,
@@ -169,8 +174,12 @@ int sdxi_adm_stop_cxt_sync(struct sdxi_cxt *cxt, unsigned int timeout_ms,
 	if (ret)
 		return ret;
 
-	return sdxi_adm_submit(to_admin_cxt(cxt), descs, ARRAY_SIZE(descs),
-			       timeout_ms, cst_flags, interruptible);
+	ret = sdxi_adm_submit(to_admin_cxt(cxt), descs, ARRAY_SIZE(descs),
+			      timeout_ms, cst_flags, interruptible);
+	if (!ret)
+		WRITE_ONCE(cxt->started, false);
+
+	return ret;
 }
 
 int sdxi_adm_rkey_update_sync(struct sdxi_dev *sdxi, u16 rkey_start,

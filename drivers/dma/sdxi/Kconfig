@@ -2,9 +2,12 @@ config SDXI_CORE
 	tristate "SDXI (Smart Data Accelerator Interface) support"
 	# Doorbell updates require naturally-aligned 64-bit writes, per
 	# SDXI 1.0 9 MMIO Control Registers.
-	depends on 64BIT
+	depends on 64BIT && IOMMU_SUPPORT
 	select DMA_ENGINE
 	select DMA_VIRTUAL_CHANNELS
+	select IOMMU_API
+	select IOMMU_SVA
+	select MMU_NOTIFIER
 	select PACKING
 	help
 	  Enable support for Smart Data Accelerator Interface (SDXI)
@@ -21,7 +24,7 @@ config SDXI_CORE
 
 config SDXI_PCI
 	tristate "SDXI (Smart Data Accelerator Interface) PCI driver"
-	depends on PCI_MSI && 64BIT
+	depends on PCI_MSI && 64BIT && IOMMU_SUPPORT
 	select SDXI_CORE
 	help
 	  Enable support for PCI-hosted SDXI devices.

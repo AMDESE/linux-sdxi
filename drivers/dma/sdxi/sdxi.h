@@ -113,6 +113,7 @@ struct sdxi_dev {
 	struct mutex admin_lock;		/* admin submission serialization */
 	bool admin_dead;
 	struct xarray client_cxts; /* context id -> (struct sdxi_cxt *) */
+	u32 mmap_gen;
 
 	bool has_mailbox;
 
@@ -160,6 +161,7 @@ static inline int sdxi_vector_to_irq(struct sdxi_dev *sdxi, unsigned int nr)
 int sdxi_register(struct device *dev, const struct sdxi_bus_ops *ops);
 void sdxi_unregister(struct device *dev);
 void sdxi_dev_force_quiesce(struct sdxi_dev *sdxi);
+void sdxi_dev_fail(struct sdxi_dev *sdxi);
 
 static inline u64 sdxi_read64(const struct sdxi_dev *sdxi, enum sdxi_reg reg)
 {
