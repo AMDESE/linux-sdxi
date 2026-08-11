@@ -36,6 +36,7 @@
 #include "ring.h"
 #include "sdxi.h"
 #include "submission.h"
+#include "trace.h"
 
 #define DEFAULT_DESC_RING_ENTRIES 1024
 #define SDXI_CXT_QUIESCE_TIMEOUT_MS 5000U
@@ -49,6 +50,16 @@ enum {
 };
 
 static void sdxi_cxt_cleanup_workfn(struct work_struct *work);
+
+static void sdxi_cxt_free_sq(struct sdxi_cxt *cxt)
+{
+	if (!cxt->sq)
+		return;
+
+	trace_sdxi_free_sq(cxt, cxt->sq);
+	sdxi_sq_free(cxt->sdxi, cxt->sq);
+	cxt->sq = NULL;
+}
 
 /*
  * Free context and its resources. @cxt may be partially allocated but
@@ -70,8 +81,7 @@ static void sdxi_free_cxt(struct sdxi_cxt *cxt)
 				  cxt->akey_table, cxt->akey_table_dma);
 	if (cxt->cst_pool)
 		sdxi_cst_pool_destroy(sdxi, cxt->cst_pool);
-	if (cxt->sq)
-		sdxi_sq_free(sdxi, cxt->sq);
+	sdxi_cxt_free_sq(cxt);
 	ida_destroy(&cxt->akey_ida);
 	mutex_destroy(&cxt->akey_lock);
 	mutex_destroy(&cxt->cleanup_lock);
@@ -205,6 +215,7 @@ static int sdxi_alloc_kernel_submission(struct sdxi_cxt *cxt)
 	cxt->sq = sdxi_sq_alloc(cxt->sdxi, DEFAULT_DESC_RING_ENTRIES);
 	if (!cxt->sq)
 		return -ENOMEM;
+	trace_sdxi_create_sq(cxt, cxt->sq);
 
 	cxt->cst_pool = sdxi_cst_pool_create(cxt->sdxi,
 					     DEFAULT_DESC_RING_ENTRIES);
@@ -434,11 +445,13 @@ out_unlock:
 	mutex_unlock(&cxt->sdxi->cxt_lock);
 	if (err) {
 		invalidate_cxt_ctl(cxt->cxt_ctl);
-	} else {
-		cxt->published = true;
-		cxt->update_pending = false;
+		return err;
 	}
-	return err;
+
+	cxt->published = true;
+	cxt->update_pending = false;
+	trace_sdxi_create_cxt(cxt->sdxi, cxt);
+	return 0;
 }
 
 /* Invalidate a context. */
@@ -451,6 +464,7 @@ static void sdxi_rescind_cxt(struct sdxi_cxt *cxt)
 
 	if (!cxt->published)
 		return;
+	trace_sdxi_free_cxt(sdxi, cxt);
 
 	mutex_lock(&sdxi->cxt_lock);
 	L1_table = sdxi->L1_tables[l2_idx];
@@ -575,10 +589,7 @@ static void sdxi_cxt_release_resources(struct sdxi_cxt *cxt)
 		sdxi_cst_pool_destroy(sdxi, cxt->cst_pool);
 		cxt->cst_pool = NULL;
 	}
-	if (cxt->sq) {
-		sdxi_sq_free(sdxi, cxt->sq);
-		cxt->sq = NULL;
-	}
+	sdxi_cxt_free_sq(cxt);
 	kfree(cxt->ring_state);
 	cxt->ring_state = NULL;
 }

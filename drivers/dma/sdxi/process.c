@@ -14,6 +14,7 @@
 #include "context.h"
 #include "process.h"
 #include "sdxi.h"
+#include "trace.h"
 
 static void sdxi_process_cleanup(struct sdxi_process *process)
 {
@@ -95,8 +96,10 @@ void sdxi_process_unbind_sva(struct sdxi_process *process,
 		mmu_notifier_unregister(&process->notifier, process->mm);
 	}
 
-	if (sva)
+	if (sva) {
 		iommu_sva_unbind_device(sva);
+		trace_sdxi_unbind_process(process->sdxi, pasid);
+	}
 }
 
 static void sdxi_process_free(struct sdxi_process *process)
@@ -157,6 +160,7 @@ int sdxi_process_bind(struct sdxi_process *process)
 
 	process->pasid = pasid;
 	process->sva = sva;
+	trace_sdxi_bind_process(process->sdxi, pasid);
 	return 0;
 
 unbind:

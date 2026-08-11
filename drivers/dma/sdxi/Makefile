@@ -14,6 +14,7 @@ sdxi-core-y := \
 	process.o     \
 	ring.o        \
 	sysfs.o       \
+	trace.o       \
 	vendor.o
 
 obj-$(CONFIG_SDXI_PCI) += sdxi-pci.o
