@@ -30,12 +30,13 @@ API of the DMAEngine. This is applicable only for slave DMA usage only.
 DMA Test documentation
 ----------------------
 
-This book introduces how to test DMA drivers using dmatest module.
+These documents introduce DMA driver testing and memcpy throughput measurement.
 
 .. toctree::
    :maxdepth: 1
 
    dmatest
+   dmabench
 
 PXA DMA documentation
 ----------------------

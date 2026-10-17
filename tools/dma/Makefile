@@ -18,7 +18,7 @@ MAKEFLAGS += -r
 
 override CFLAGS += -O2 -Wall -g -D_GNU_SOURCE -I$(OUTPUT)include
 
-ALL_TARGETS := dma_map_benchmark
+ALL_TARGETS := dma_map_benchmark dmabench
 ALL_PROGRAMS := $(patsubst %,$(OUTPUT)%,$(ALL_TARGETS))
 
 all: $(ALL_PROGRAMS)
@@ -29,17 +29,17 @@ include $(srctree)/tools/build/Makefile.include
 #
 # We need the following to be outside of kernel tree
 #
-$(OUTPUT)include/linux/map_benchmark.h: ../../include/uapi/linux/map_benchmark.h
-	mkdir -p $(OUTPUT)include/linux 2>&1 || true
-	ln -sf $(CURDIR)/../../include/uapi/linux/map_benchmark.h $@
+$(OUTPUT)include/linux/%.h: $(srctree)/include/uapi/linux/%.h
+	mkdir -p $(OUTPUT)include/linux
+	ln -sf $< $@
 
-prepare: $(OUTPUT)include/linux/map_benchmark.h
+prepare: $(OUTPUT)include/linux/map_benchmark.h $(OUTPUT)include/linux/dmabench.h
 
-FORCE:
+$(ALL_PROGRAMS): $(OUTPUT)%: %.c | prepare
+	$(CC) $(CFLAGS) $(LDFLAGS) $< -o $@ $(LDLIBS)
 
-DMA_MAP_BENCHMARK = dma_map_benchmark
-$(DMA_MAP_BENCHMARK): prepare FORCE
-	$(CC) $(CFLAGS) $(DMA_MAP_BENCHMARK).c -o $(DMA_MAP_BENCHMARK)
+$(OUTPUT)dma_map_benchmark: $(OUTPUT)include/linux/map_benchmark.h
+$(OUTPUT)dmabench: $(OUTPUT)include/linux/dmabench.h
 
 clean:
 	rm -f $(ALL_PROGRAMS)
@@ -52,4 +52,4 @@ install: $(ALL_PROGRAMS)
 		install $$program $(DESTDIR)$(bindir);	\
 	done
 
-.PHONY: all install clean prepare FORCE
+.PHONY: all install clean prepare

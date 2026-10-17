@@ -787,6 +787,14 @@ config DMATEST
 	  Simple DMA test client. Say N unless you're debugging a
 	  DMA Device driver.
 
+config DMABENCH
+	tristate "DMAengine memcpy benchmark"
+	depends on DMA_ENGINE && DEBUG_FS
+	help
+	  Measure sustained DMAengine memcpy throughput using a debugfs ioctl
+	  and the userspace command in tools/dma. Loading the module does not
+	  start transfers. See Documentation/driver-api/dmaengine/dmabench.rst.
+
 config DMA_ENGINE_RAID
 	bool
 

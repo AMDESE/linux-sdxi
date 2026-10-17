@@ -7711,6 +7711,9 @@ F:	include/dt-bindings/dma/
 F:	include/linux/dma/
 F:	include/linux/dmaengine.h
 F:	include/linux/of_dma.h
+F:	include/uapi/linux/dmabench.h
+F:	tools/dma/Makefile
+F:	tools/dma/dmabench.c
 
 DMA MAPPING BENCHMARK
 M:	Barry Song <baohua@kernel.org>
