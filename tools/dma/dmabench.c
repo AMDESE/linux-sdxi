@@ -33,7 +33,7 @@ static void usage(FILE *stream, const char *program)
 	fprintf(stream,
 		"Usage: %s --channel NAME [options]\n"
 		"  --channel NAME          Exact DMAengine channel name (required)\n"
-		"  --transfer-size BYTES   Payload per copy (default 65536)\n"
+		"  --transfer-order N      Copy kernel page size * 2^N bytes (default 0)\n"
 		"  --queue-depth COUNT     Maximum outstanding copies (default 64)\n"
 		"  --batch-size COUNT      Copies per issue/notification (default 16)\n"
 		"  --buffer-count COUNT    Source/destination pairs (default 1024)\n"
@@ -45,7 +45,11 @@ static void usage(FILE *stream, const char *program)
 		"  --flags MASK           Numeric flags (only bit 0: verification)\n"
 		"  --json                 Print configuration and results as JSON\n"
 		"  --help                 Show this help\n"
-		"Numbers are decimal, without unit suffixes.\n",
+		"Numbers are decimal, without unit suffixes.\n"
+		"Order 0 copies one kernel page; byte sizes depend on kernel page size.\n"
+		"Limits: 1 GiB per copy, 16 GiB total source/destination pool,\n"
+		"4096 outstanding copies, 65536 buffer pairs, 600000 ms timeout.\n"
+		"All buffer pages must reside on the DMA allocation device's NUMA node.\n",
 		program);
 }
 
@@ -71,7 +75,7 @@ static bool parse_u64(const char *text, uint64_t max, uint64_t *value)
 static bool valid_config(const struct dmabench_config *cfg)
 {
 	const unsigned char *p = (const unsigned char *)cfg->channel;
-	uint64_t rounded;
+	uint64_t transfer_size;
 	long page_size;
 
 	if (!*p)
@@ -79,22 +83,22 @@ static bool valid_config(const struct dmabench_config *cfg)
 	for (; *p; p++)
 		if (!isalnum(*p) && *p != '_' && *p != '-' && *p != '.')
 			return false;
-	if (!cfg->transfer_size || cfg->transfer_size > DMABENCH_MAX_TRANSFER_SIZE ||
-	    !cfg->transfers || !cfg->batch_size ||
+	if (!cfg->transfers || !cfg->batch_size ||
 	    cfg->batch_size > cfg->queue_depth ||
 	    cfg->queue_depth > cfg->buffer_count ||
 	    cfg->queue_depth > DMABENCH_MAX_QUEUE_DEPTH ||
 	    cfg->buffer_count > DMABENCH_MAX_BUFFER_COUNT ||
 	    !cfg->timeout_ms || cfg->timeout_ms > DMABENCH_MAX_TIMEOUT_MS ||
-	    cfg->flags & ~DMABENCH_F_VERIFY ||
-	    cfg->transfers > UINT64_MAX / cfg->transfer_size ||
-	    cfg->warmup_transfers > UINT64_MAX / cfg->transfer_size)
+	    cfg->flags & ~DMABENCH_F_VERIFY)
 		return false;
 	page_size = sysconf(_SC_PAGESIZE);
-	if (page_size <= 0)
+	if (page_size <= 0 || cfg->transfer_order >= 64 ||
+	    (uint64_t)page_size > (DMABENCH_MAX_TRANSFER_SIZE >> cfg->transfer_order))
 		return false;
-	rounded = (cfg->transfer_size + page_size - 1) / page_size * page_size;
-	return rounded <= DMABENCH_MAX_ALLOCATION_BYTES / (2 * cfg->buffer_count);
+	transfer_size = (uint64_t)page_size << cfg->transfer_order;
+	return cfg->transfers <= UINT64_MAX / transfer_size &&
+		cfg->warmup_transfers <= UINT64_MAX / transfer_size &&
+		transfer_size <= DMABENCH_MAX_ALLOCATION_BYTES / (2 * cfg->buffer_count);
 }
 
 static void print_results(const struct dmabench_run *run, bool json)
@@ -110,7 +114,7 @@ static void print_results(const struct dmabench_run *run, bool json)
 	if (json) {
 		printf("{\n  \"config\": {\n"
 		       "    \"channel\": \"%s\",\n"
-		       "    \"transfer_size\": %" PRIu64 ",\n"
+		       "    \"transfer_order\": %u,\n"
 		       "    \"queue_depth\": %u,\n"
 		       "    \"batch_size\": %u,\n"
 		       "    \"buffer_count\": %u,\n"
@@ -126,19 +130,22 @@ static void print_results(const struct dmabench_run *run, bool json)
 		       "    \"payload_bytes\": %" PRIu64 ",\n"
 		       "    \"issue_pending_calls\": %" PRIu64 ",\n"
 		       "    \"allocation_bytes\": %" PRIu64 ",\n"
+		       "    \"transfer_size\": %" PRIu64 ",\n"
+		       "    \"buffer_node\": %d,\n"
 		       "    \"mib_per_second\": %.6f,\n"
 		       "    \"gib_per_second\": %.6f,\n"
 		       "    \"transactions_per_second\": %.6f\n  }\n}\n",
-		       cfg->channel, (uint64_t)cfg->transfer_size, cfg->queue_depth,
+		       cfg->channel, cfg->transfer_order, cfg->queue_depth,
 		       cfg->batch_size, cfg->buffer_count, (uint64_t)cfg->transfers,
 		       (uint64_t)cfg->warmup_transfers, cfg->cpu, cfg->timeout_ms,
 		       cfg->flags, (uint64_t)res->elapsed_ns, (uint64_t)res->submitted,
 		       (uint64_t)res->completed, (uint64_t)res->payload_bytes,
 		       (uint64_t)res->issue_pending_calls,
-		       (uint64_t)res->allocation_bytes, mib, gib, tps);
+		       (uint64_t)res->allocation_bytes, (uint64_t)res->transfer_size,
+		       res->buffer_node, mib, gib, tps);
 		return;
 	}
-	printf("channel=%s transfer_size=%" PRIu64
+	printf("channel=%s transfer_order=%u transfer_size=%" PRIu64 " buffer_node=%d"
 	       " queue_depth=%u batch_size=%u buffer_count=%u\n"
 	       "transfers=%" PRIu64 " warmup_transfers=%" PRIu64
 	       " cpu=%d timeout_ms=%u flags=%u verify=%s\n"
@@ -146,7 +153,8 @@ static void print_results(const struct dmabench_run *run, bool json)
 	       "payload_bytes=%" PRIu64 " issue_pending_calls=%" PRIu64
 	       " allocation_bytes=%" PRIu64 "\n"
 	       "Payload throughput: %.3f MiB/s, %.3f GiB/s, %.3f transactions/s\n",
-	       cfg->channel, (uint64_t)cfg->transfer_size, cfg->queue_depth,
+	       cfg->channel, cfg->transfer_order, (uint64_t)res->transfer_size,
+	       res->buffer_node, cfg->queue_depth,
 	       cfg->batch_size, cfg->buffer_count, (uint64_t)cfg->transfers,
 	       (uint64_t)cfg->warmup_transfers, cfg->cpu, cfg->timeout_ms,
 	       cfg->flags, cfg->flags & DMABENCH_F_VERIFY ? "yes" : "no",
@@ -160,7 +168,7 @@ int main(int argc, char **argv)
 {
 	static const struct option options[] = {
 		{ "channel", required_argument, NULL, 'c' },
-		{ "transfer-size", required_argument, NULL, 's' },
+		{ "transfer-order", required_argument, NULL, 'o' },
 		{ "queue-depth", required_argument, NULL, 'q' },
 		{ "batch-size", required_argument, NULL, 'b' },
 		{ "buffer-count", required_argument, NULL, 'p' },
@@ -176,7 +184,7 @@ int main(int argc, char **argv)
 	};
 	struct dmabench_run run = {
 		.config = {
-			.transfer_size = 65536,
+			.transfer_order = 0,
 			.queue_depth = 64,
 			.batch_size = 16,
 			.buffer_count = 1024,
@@ -219,13 +227,13 @@ int main(int argc, char **argv)
 			usage(stderr, argv[0]);
 			return EXIT_FAILURE;
 		}
-		max = opt == 's' || opt == 't' || opt == 'w' ? UINT64_MAX :
+		max = opt == 't' || opt == 'w' ? UINT64_MAX :
 			opt == 'a' ? INT_MAX : UINT32_MAX;
 		if (!parse_u64(optarg, max, &value))
 			goto invalid;
 		switch (opt) {
-		case 's':
-			cfg->transfer_size = value;
+		case 'o':
+			cfg->transfer_order = value;
 			break;
 		case 'q':
 			cfg->queue_depth = value;
@@ -283,7 +291,8 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 	close(fd);
-	if (!run.result.elapsed_ns || run.result.completed != cfg->transfers ||
+	if (!run.result.elapsed_ns || !run.result.transfer_size ||
+	    run.result.buffer_node < 0 || run.result.completed != cfg->transfers ||
 	    run.result.submitted != cfg->transfers) {
 		fprintf(stderr, "DMABENCH_RUN returned invalid results\n");
 		return EXIT_FAILURE;

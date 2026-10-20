@@ -16,16 +16,16 @@
 
 struct dmabench_config {
 	char channel[DMABENCH_CHANNEL_LEN]; /* NUL-terminated exact channel name */
-	__aligned_u64 transfer_size;
 	__aligned_u64 transfers;
 	__aligned_u64 warmup_transfers;
+	__u32 transfer_order; /* Copy PAGE_SIZE * 2^transfer_order bytes */
 	__u32 queue_depth;
 	__u32 batch_size;
 	__u32 buffer_count;
 	__s32 cpu; /* -1 for unbound, otherwise an online CPU */
 	__u32 timeout_ms; /* Maximum interval without batch completion progress */
 	__u32 flags;
-	__aligned_u64 reserved[4]; /* Must be zero */
+	__u32 reserved[7]; /* Must be zero */
 };
 
 struct dmabench_result {
@@ -34,8 +34,10 @@ struct dmabench_result {
 	__aligned_u64 completed; /* Copies reclaimed through batch completions */
 	__aligned_u64 payload_bytes;
 	__aligned_u64 issue_pending_calls;
-	__aligned_u64 allocation_bytes; /* Sum of page-rounded src/dst sizes */
-	__aligned_u64 reserved[4]; /* Must be zero on input; zero on output */
+	__aligned_u64 allocation_bytes; /* Sum of exact src/dst allocation sizes */
+	__aligned_u64 transfer_size; /* Effective bytes per copy */
+	__s32 buffer_node; /* NUMA node of all source/destination backing pages */
+	__u32 reserved[9]; /* Must be zero on input; zero on output */
 };
 
 struct dmabench_run {

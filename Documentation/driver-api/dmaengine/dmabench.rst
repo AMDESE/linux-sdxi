@@ -26,7 +26,7 @@ provider and dmabench, choose an exact channel name from
 measurement, drain, and optional verification::
 
     sudo .build/dmabench/tools/dma/dmabench --channel dma0chan0 \
-        --transfer-size 65536 --queue-depth 64 --batch-size 16 \
+        --transfer-order 0 --queue-depth 64 --batch-size 16 \
         --buffer-count 1024 --transfers 100000 --warmup-transfers 4096
 
 Add ``--verify`` to check final data, or ``--json`` for machine-readable
@@ -48,7 +48,7 @@ Configuration and resource limits
 Option             Default    Meaning
 ================== ========== =================================================
 channel            required   Exact channel name, at most 31 characters
-transfer-size      65536      Payload bytes per memcpy
+transfer-order     0          Copy kernel page size times 2 to this order
 queue-depth        64         Maximum copies submitted but not batch-reclaimed
 batch-size         16         Maximum submissions per issue and notification
 buffer-count       1024       Number of distinct source/destination pairs
@@ -59,25 +59,40 @@ timeout-ms         3000       Maximum interval without batch completion progress
 flags              0          Bit 0 enables final data verification
 ================== ========== =================================================
 
-Require ``1 <= batch-size <= queue-depth <= buffer-count``, nonzero transfer
-size and measured count, and a positive timeout. The limits per request are
-4096 outstanding copies, 65536 buffer pairs, 1 GiB per copy, 16 GiB total
-page-rounded source plus destination allocation, and 600000 ms (10 minutes)
-without batch completion progress. Allocation accounting must also fit in
-``size_t``, making the pool limit smaller on 32-bit kernels. Each phase's
+``--transfer-order N`` requests exactly ``PAGE_SIZE * 2^N`` payload bytes per
+memcpy. Order 0 copies one kernel page. The same order can mean different byte
+sizes on kernels with different page sizes: order 0 is 4096 bytes with 4 KiB
+pages and 65536 bytes with 64 KiB pages. The order describes copy size, not
+physical allocation contiguity, and is not limited by the buddy allocator's
+maximum order. The effective byte size is returned as ``transfer_size``.
+
+Require ``1 <= batch-size <= queue-depth <= buffer-count``, a nonzero measured
+count, a nonnegative transfer order, and a positive timeout. Orders are checked
+before shifting. The limits per request are 4096 outstanding copies,
+65536 buffer pairs, 1 GiB per copy, 16 GiB total source plus destination
+allocation, and 600000 ms (10 minutes) without batch completion progress.
+Allocation accounting must also fit in ``size_t``, making the pool limit
+smaller on 32-bit kernels. Each phase's
 payload count must fit in an unsigned 64-bit integer. Metadata allocation is
 bounded by the queue and pool limits. Concurrent requests have independent
 limits; sufficient free memory is still required.
+
+The largest permitted order is 18 with 4 KiB pages or 14 with 64 KiB pages;
+both describe a 1 GiB copy. At that size the pool limit permits at most eight
+source/destination pairs, requiring queue depth and batch size of at most
+eight. The defaults use 8 MiB for both pools combined with 4 KiB pages or
+128 MiB with 64 KiB pages.
 
 Channel names must be nonempty, NUL-terminated, and consist of ASCII letters,
 digits, underscores, hyphens or periods. A selected CPU must be online at
 worker creation. CPU hotplug may subsequently move the worker; avoid changing
 CPU topology during a run. CPU selection controls worker placement only. It
-does not guarantee buffer NUMA locality or interrupt affinity.
+does not control buffer NUMA placement or interrupt affinity. Keep the worker
+CPU fixed with ``--cpu`` across comparative runs.
 
 The requested memcpy size is never rounded or split into multiple DMAengine
-transactions. It must satisfy the provider's copy alignment. Each allocation
-is rounded up to the kernel page size and must fit the DMA device's maximum
+transactions. Allocation length and payload length are identical. The size
+must satisfy the provider's copy alignment and fit the DMA device's maximum
 mapping and segment sizes and segment boundary. The returned DMA segment must
 cover the allocation and its address must satisfy copy alignment. A provider
 can impose additional limits that cause descriptor preparation to fail.
@@ -92,9 +107,24 @@ writes on non-coherent platforms (see :doc:`/core-api/dma-api`). With an IOMMU, 
 allocation can use scattered physical pages. Without one it can require
 contiguous physical memory, so a large individual copy may fail even when a
 large pool of smaller buffers succeeds. No device DMA masks or global NUMA
-settings are changed. ``allocation_bytes`` is the sum of the page-rounded
-sizes passed to the DMA allocator for both pools; it excludes metadata and
-any internal allocator or IOMMU rounding overhead.
+settings are changed. ``allocation_bytes`` is exactly twice ``buffer_count``
+times ``transfer_size``; it excludes metadata and any internal allocator or
+IOMMU rounding overhead.
+
+After channel reservation, dmabench captures the allocation device's NUMA node
+with ``dev_to_node()``. That node must be valid, online, and have memory;
+otherwise the request fails with ``EOPNOTSUPP`` and a kernel diagnostic.
+Non-NUMA kernels use node 0. Source and destination allocations include
+``__GFP_THISNODE``. Immediately after each allocation, dmabench walks every
+backing page in the CPU-side sg table and requires ``page_to_nid()`` to match
+the captured node. This check includes every page in every source and
+destination allocation, even when there is only one mapped DMA segment.
+CMA and allocation-pool paths may not honor the allocation flag, so the page
+check is still required. Mixed or remote placement fails with ``EXDEV`` and a
+kernel diagnostic; all allocations are cleaned up without automatic retry.
+The placement guarantee excludes metadata and provider-owned descriptors.
+The captured node is returned as ``buffer_node``. There is no user-selectable
+placement option, and worker CPU placement remains independently controlled.
 
 Measurement and completion
 --------------------------
@@ -142,10 +172,12 @@ subtracted. Results measure DMAengine client throughput, not isolated hardware
 execution time.
 
 The ioctl returns elapsed nanoseconds, measured submitted and completed copies,
-completed payload bytes, measured issue-pending calls, and allocation bytes.
+completed payload bytes, measured issue-pending calls, allocation bytes,
+effective ``transfer_size`` in bytes, and signed ``buffer_node``.
 The original effective configuration is returned alongside the results. On a
 successful run the submitted and completed counts both equal ``transfers``.
-The tool computes MiB/s, GiB/s, and transactions/s from these raw values.
+The tool prints the requested order, effective byte size, and buffer node in
+text and JSON, and computes MiB/s, GiB/s, and transactions/s from the raw values.
 Copying N payload bytes generally causes N bytes of reads and N bytes of
 writes: the reported payload rate counts N, not 2N.
 
@@ -161,10 +193,21 @@ pass before warmup. The final data cannot prove that every repeated copy of
 identical data executed correctly. Use :doc:`dmatest` for broader correctness
 coverage.
 
-The progress timeout is refreshed by batch callbacks, never by new
-submissions. Cancellation checks occur while allocating, initializing,
-submitting and verifying; completion waits are interruptible. A signal to the
-ioctl caller requests cancellation and wakes the worker. It stops submitting
+At the start of each nonempty phase, the progress timeout and its expiry latch
+are reset. Each batch callback checks its arrival time against the previous
+progress deadline before refreshing progress. Completion at or after that
+deadline latches expiry for the rest of the phase. The worker checks the latch
+before accepting completions, including final completion, so a late callback
+cannot hide a timeout by refreshing progress before the worker resumes.
+Deadline comparisons use wrap-safe jiffies arithmetic. Timeout detection is at
+batch boundaries, with no per-transfer timing or watchdog. A late completion
+can therefore reveal expiry after the fact, even if all DMA has completed;
+the run returns ``ETIMEDOUT`` without successful performance results.
+
+New submissions never refresh progress. Cancellation checks occur while
+allocating, initializing, submitting and verifying; completion waits are
+interruptible. A signal to the ioctl caller requests cancellation and wakes
+the worker. It stops submitting
 and quiesces DMA and callbacks before the ioctl returns ``EINTR``. Cancellation
 cannot interrupt a provider operation already executing, and the progress
 timeout does not bound allocation, verification, or provider termination time.
@@ -189,8 +232,9 @@ resources. Do not force module removal after a termination failure.
 ABI and errors
 --------------
 
-``include/uapi/linux/dmabench.h`` defines the 192-byte ``struct dmabench_run``:
-a 112-byte configuration followed by an 80-byte result. Its fixed-width,
+``include/uapi/linux/dmabench.h`` defines the 200-byte ``struct dmabench_run``:
+a 104-byte configuration followed by a 96-byte result. All three structures
+have 8-byte alignment and no implicit padding. Their fixed-width,
 explicitly aligned fields have the same layout for native and compat callers.
 There are no user pointers in the structure. Zero-initialize the whole
 structure, fill the configuration, then call ``DMABENCH_RUN``. All reserved
@@ -202,13 +246,14 @@ are returned on error.
 Error           Meaning
 =============== ==============================================================
 ENODEV          Named memcpy channel absent, busy, or unavailable to reservation
-EOPNOTSUPP      Unordered completion or required teardown operations unavailable
+EOPNOTSUPP      Unordered completion, missing teardown, or unusable device node
+EXDEV          A source/destination backing page is on a different NUMA node
 EINVAL         Malformed configuration, offline CPU, or unsupported alignment
 E2BIG          Resource limit, DMA mapping/segment size, or boundary exceeded
 EOVERFLOW      Size or payload accounting cannot be represented
 ENOMEM         Buffer, CPU mapping, metadata, or worker allocation failed
 EIO            Preparation/submission, terminal callback, timing, or teardown error
-ETIMEDOUT      No batch completion progress within the requested interval
+ETIMEDOUT      Batch progress deadline expired, including a late completion
 EINTR          Interrupted request after safe cancellation
 EILSEQ         Final payload comparison failed
 EFAULT         Request/result cannot be copied from/to userspace
@@ -220,7 +265,7 @@ channels; both use ``ENODEV``. Worker creation can also return its underlying
 kernel error. An error copying results to userspace does not undo a completed
 benchmark.
 
-This version does not support user buffers, explicit buffer NUMA placement,
+This version does not support user buffers, user-selectable buffer NUMA placement,
 multi-channel requests, duration-based runs, descriptor reuse, hardware polling,
 or hardware interrupt moderation controls. Build validation alone does not
 establish hardware behavior; test the chosen provider and platform manually.

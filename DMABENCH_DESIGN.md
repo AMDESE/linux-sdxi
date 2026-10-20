@@ -10,7 +10,7 @@ The user will test on hardware manually. Only build validation is required:
 do not load the module, run DMA traffic, install the tool or kernel, or invent
 a hardware test environment. Use the existing kernel output directory
 `.build/dmabench`, which the user has already configured. Preserve its
-configuration except for enabling the new benchmark option as necessary.
+configuration, including `CONFIG_DMABENCH=m`.
 
 Do not change DMAengine providers, including SDXI. Do not adapt the design to
 the current implementation of any particular provider. Exclude channels with
@@ -100,7 +100,7 @@ an elaborate version negotiation protocol.
 | Field | Meaning |
 | --- | --- |
 | channel | Exact DMA channel name, e.g. `dma0chan0`; required |
-| transfer_size | Payload bytes per memcpy transaction |
+| transfer_order | Copy exactly `PAGE_SIZE * 2^transfer_order` payload bytes |
 | queue_depth | Maximum submitted copies not yet reclaimed through a batch completion |
 | batch_size | Maximum submissions before issue_pending; notification on last copy |
 | buffer_count | Number of distinct source/destination pairs |
@@ -111,22 +111,44 @@ an elaborate version negotiation protocol.
 | flags | Initially optional data verification only |
 
 Require `1 <= batch_size <= queue_depth <= buffer_count`, nonzero transfer
-count and size, and a positive timeout. Reject malformed or unterminated
-channel names. Validate CPU selection, provider copy alignment, conversion
-to `size_t`, page rounding, allocation size and count products, and payload
+count, a nonnegative transfer order, and a positive timeout. Reject malformed
+or unterminated channel names. Validate CPU selection, provider copy alignment,
+conversion to `size_t`, allocation size and count products, and payload
 counter overflow. Establish documented resource limits so arbitrary input
 cannot cause unbounded metadata allocation or nonsensical waits. Fail clearly
 on unsupported lengths rather than changing the requested transfer size.
+Validate the order before shifting. Derive the effective byte length once in
+request-local state and use it for alignment, allocation, initialization,
+submission, verification, and payload accounting. Allocation and payload
+lengths are identical; never round or split a requested copy. Retain the 1 GiB
+per-copy and 16 GiB total source/destination pool limits, the 4096 queue-depth
+and 65536 buffer-pair limits, and the 600000 ms timeout limit. Check metadata
+products, `size_t` representability, and measured/warmup payload overflow.
 
-CLI defaults, proposed: 64 KiB per copy, queue depth 64, batch size 16,
+CLI defaults: transfer order 0 (one kernel page), queue depth 64, batch size 16,
 buffer count 1024, 100000 measured copies, 4096 warmup copies, 3000 ms progress
 timeout, unbound worker, and verification disabled. The channel has no default.
-Defaults belong in userspace; the kernel validates explicit requests.
+Defaults belong in userspace; the kernel validates explicit requests. The same
+order means different byte sizes on kernels with different page sizes.
+Maximum permitted order is 18 with 4 KiB pages or 14 with 64 KiB pages, each
+giving a 1 GiB copy and permitting at most eight pairs under the pool limit.
+Order describes copy size, not physical contiguity; do not limit it to the
+buddy allocator's maximum order.
 
-Defer strict buffer NUMA-node selection: `dma_alloc_noncontiguous()` has no
-explicit node argument. CPU selection controls the worker only and must not
-be documented as a guarantee of buffer locality. Do not change device-global
-NUMA state or DMA masks to implement placement. Also defer user buffers,
+Require all source/destination backing pages to reside on the allocation
+device's NUMA node. Capture `dev_to_node()` after channel reservation using
+`dmaengine_get_dma_device(chan)`. Require a valid online node with memory,
+returning `-EOPNOTSUPP` with a clear diagnostic otherwise; use node 0 without
+NUMA. Allocate with `__GFP_THISNODE` and verify every backing page immediately
+after allocation using the CPU-side sg-table page iterator, before vmap or
+initialization. Require every `page_to_nid()` to match the captured node;
+return `-EXDEV` with a diagnostic on mismatch, cleaning up all allocations
+without retry. Retain verification because CMA and allocation pools may not
+honor the flag. The guarantee covers every page in every source/destination
+allocation but excludes metadata and provider-owned descriptors. Worker CPU
+placement remains independently controlled by `--cpu`; recommend a fixed CPU
+across comparative runs. Add no user-selectable placement option and change
+no device-global NUMA state, DMA masks, or provider policies. Defer user buffers,
 multi-channel requests, descriptor reuse, duration-based runs, hardware
 polling modes, and interrupt moderation controls.
 
@@ -134,7 +156,12 @@ polling modes, and interrupt moderation controls.
 
 Return raw integer results: elapsed nanoseconds, measured submitted and
 completed copies, completed payload bytes, measured issue_pending calls,
-and actual allocation bytes. Retain the effective input configuration.
+exact allocation bytes, effective `transfer_size` in bytes, and signed
+`buffer_node`. Retain the effective input configuration. Use a 104-byte config
+with `__u32 transfer_order`, a 96-byte result, and a 200-byte run structure,
+all aligned to 8 bytes with no implicit padding. The unpublished ioctl ABI
+may change; do not preserve the old layout or command encoding. Compile the
+native and compat ABI checks against the new sizes, offsets, and encoding.
 Optionally include inexpensive additional counters if they have precise
 semantics, but worker CPU time, depth histograms, and latency distributions
 are not requirements for the first version. Avoid instrumenting every copy
@@ -142,13 +169,14 @@ with timestamps just to report supplementary statistics.
 
 The CLI computes MiB/s, GiB/s, and transactions/s from returned bytes/counts
 and elapsed time. Offer long options matching the configuration fields and
-`--json` for scripting. Validate numeric input with checked conversion, not
+`--json` for scripting. Print requested order, effective bytes, and buffer node
+in both text and JSON. Validate numeric input with checked conversion, not
 `atoi()`. Print configuration with results. Clearly report ioctl errors;
 do not print a failed run as a valid performance result. A single command
 should suffice, for example:
 
 ```sh
-sudo tools/dma/dmabench --channel dma0chan0 --transfer-size 65536 \
+sudo .build/dmabench/tools/dma/dmabench --channel dma0chan0 --transfer-order 0 \
     --queue-depth 64 --batch-size 16 --buffer-count 1024 \
     --transfers 100000 --warmup-transfers 4096
 ```
@@ -162,15 +190,16 @@ benchmark. Partial-result retrieval on error is deferred.
 
 Allocate each source and destination independently with
 `dma_alloc_noncontiguous()` on `dmaengine_get_dma_device(chan)`. Use
-`DMA_TO_DEVICE` for sources and `DMA_FROM_DEVICE` for destinations. This API
+`DMA_TO_DEVICE` for sources and `DMA_BIDIRECTIONAL` for CPU-poisoned destinations,
+consistently through allocation, synchronization, and free. This API
 already returns mapped memory and guarantees one DMA segment, despite
 possibly multiple physical segments. Do not call dma_map_sg again on it.
 Obtain the transaction addresses with `sg_dma_address()` from the returned
 table and confirm that the mapped segment covers the requested range.
 
-Use page-rounded allocation sizes and report their actual sum over sources
-and destinations. The memcpy length remains the exact requested payload
-length. Respect the device's DMA allocation/mapping limits and provider
+Use the exact page-order-derived length for allocation and memcpy, and report
+its sum over sources and destinations (`2 * buffer_count * transfer_size`).
+Respect the device's DMA allocation/mapping limits and provider
 alignment. A large total pool does not require one large allocation. With
 an IOMMU, a large individual allocation may be backed by scattered pages;
 without one the allocator can require contiguous physical memory and fail.
@@ -281,6 +310,21 @@ kthread_stop as a substitute for hardware synchronization. Refresh the
 progress deadline on completed batches, not on new submissions. Check
 cancellation during submission loops as well as waits.
 
+At the beginning of each nonempty phase reset a request-local timeout latch
+and initialize progress under the existing callback/publication spinlock.
+Each batch callback captures current jiffies under that lock and compares it
+with the previous progress deadline, using `msecs_to_jiffies()` and wrap-safe
+`time_after_eq()`, before refreshing progress. Latch expiry for completion at
+or after the deadline; never clear it within a phase. The worker checks the
+latch under the same lock before accepting any completion, including final
+completion and phase success. Return `-ETIMEDOUT` through normal synchronous
+termination and cleanup without successful performance results. Detect at
+batch boundaries only: add no per-transfer deadline checks or timestamps,
+watchdog, or timeout options. A late completion can reveal expiry after the
+fact. An executing provider operation cannot be interrupted; the timeout does
+not bound allocation, verification, or provider termination time. Keep prep
+and submit adjacent and retain resources/module pinning if termination fails.
+
 On any exit after submission, stop further issuing, then terminate and
 synchronize in sleepable context before freeing DMA memory or callback state.
 Use dmaengine_terminate_sync, honor its return value, and require the provider
@@ -322,19 +366,22 @@ aggregation is deferred.
    UAPI, kernel module, CLI, build integration, and user documentation as a
    focused change. Resolve routine implementation details locally while
    preserving the decisions in this document.
-2. Enable CONFIG_DMABENCH in `.build/dmabench/.config` if needed, preferably
-   as a module when CONFIG_MODULES permits. Preserve the user's other settings.
-   For example, use scripts/config with --file and --module DMABENCH, then
-   `make O=.build/dmabench olddefconfig`. Check the effective option afterward.
-3. Build using `make O=.build/dmabench -j<N>`. If configured as a module,
+2. Preserve `.build/dmabench/.config`, including `CONFIG_DMABENCH=m`, and check
+   the effective option after building.
+3. Build using `make O=.build/dmabench -j16`. If configured as a module,
    ensure the module is compiled and linked through the normal module build,
    including modpost; a successful compilation of dmabench.o alone is not
-   sufficient. Choose a reasonable N for available resources.
+   sufficient.
 4. Build the userspace tool with the updated tools/dma build rules. Keep
    generated artifacts under `.build/dmabench` where the rules support an
    output directory, e.g. an explicitly created tools subdirectory. Verify
    those rules actually build the new tool, not just the existing benchmark.
-5. Review ABI layout, all lifetime/error paths, callback publication, queue
+5. Update and compile the existing 32-bit and 64-bit ABI checks for matching
+   sizes, every offset, alignment, and ioctl encoding. Review order 0, maximum
+   order, excessive orders before shifting, pool/payload overflow, alignment
+   rejection, unusable nodes, mixed-node and partial allocations, cancellation,
+   termination failure, late final completion, warmup isolation, and jiffies
+   wraparound. Review all lifetime/error paths, callback publication, queue
    wraparound, cache ownership, and integer arithmetic. Run diff/checkpatch
    checks appropriate to new kernel code. Fix build warnings introduced by
    the change. Do not require runtime tests, KUnit, or SDXI-specific builds.

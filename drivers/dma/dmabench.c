@@ -16,7 +16,9 @@
 #include <linux/list.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/nodemask.h>
 #include <linux/overflow.h>
+#include <linux/scatterlist.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
@@ -53,11 +55,13 @@ struct dmabench_request {
 	struct device *dev;
 	struct dmabench_pair *pairs;
 	struct dmabench_batch *batches;
-	size_t allocation_size;
+	size_t transfer_size;
+	int buffer_node;
 	u32 next_pair;
 	/* Protects callback publication, progress, and batch reclamation. */
 	spinlock_t lock;
 	unsigned long progress;
+	bool timed_out;
 	u64 end_ns;
 	wait_queue_head_t wait;
 	struct completion exited;
@@ -80,7 +84,7 @@ static bool dmabench_cancelled(struct dmabench_request *req)
 static int dmabench_validate(struct dmabench_request *req)
 {
 	struct dmabench_config *cfg = &req->run.config;
-	u64 bytes, rounded;
+	u64 bytes, transfer_size;
 	size_t metadata;
 	size_t len;
 	u32 i;
@@ -99,22 +103,22 @@ static int dmabench_validate(struct dmabench_request *req)
 		return -EINVAL;
 	memset(&req->run.result, 0, sizeof(req->run.result));
 
-	if (!cfg->transfer_size || !cfg->transfers || !cfg->batch_size ||
+	if (!cfg->transfers || !cfg->batch_size ||
 	    cfg->batch_size > cfg->queue_depth ||
 	    cfg->queue_depth > cfg->buffer_count || !cfg->timeout_ms ||
 	    cfg->cpu < -1 || (cfg->cpu >= 0 && cfg->cpu >= nr_cpu_ids))
 		return -EINVAL;
 	if (cfg->buffer_count > DMABENCH_MAX_BUFFER_COUNT ||
 	    cfg->queue_depth > DMABENCH_MAX_QUEUE_DEPTH ||
-	    cfg->transfer_size > DMABENCH_MAX_TRANSFER_SIZE ||
 	    cfg->timeout_ms > DMABENCH_MAX_TIMEOUT_MS)
 		return -E2BIG;
-	if (check_add_overflow(cfg->transfer_size, (u64)PAGE_SIZE - 1,
-			       &rounded))
-		return -EOVERFLOW;
-	rounded &= ~((u64)PAGE_SIZE - 1);
-	if (rounded > SIZE_MAX ||
-	    check_mul_overflow(rounded, (u64)cfg->buffer_count * 2, &bytes) ||
+	/* Bound the order before shifting the page size. */
+	if (cfg->transfer_order >= 64 ||
+	    (u64)PAGE_SIZE > (DMABENCH_MAX_TRANSFER_SIZE >> cfg->transfer_order))
+		return -E2BIG;
+	transfer_size = (u64)PAGE_SIZE << cfg->transfer_order;
+	if (transfer_size > SIZE_MAX ||
+	    check_mul_overflow(transfer_size, (u64)cfg->buffer_count * 2, &bytes) ||
 	    bytes > SIZE_MAX ||
 	    check_mul_overflow((size_t)cfg->buffer_count,
 			       sizeof(*req->pairs), &metadata) ||
@@ -123,10 +127,11 @@ static int dmabench_validate(struct dmabench_request *req)
 		return -EOVERFLOW;
 	if (bytes > DMABENCH_MAX_ALLOCATION_BYTES)
 		return -E2BIG;
-	req->allocation_size = rounded;
+	req->transfer_size = transfer_size;
+	req->run.result.transfer_size = transfer_size;
 	req->run.result.allocation_bytes = bytes;
-	if (check_mul_overflow(cfg->transfers, cfg->transfer_size, &bytes) ||
-	    check_mul_overflow(cfg->warmup_transfers, cfg->transfer_size, &bytes))
+	if (check_mul_overflow(cfg->transfers, transfer_size, &bytes) ||
+	    check_mul_overflow(cfg->warmup_transfers, transfer_size, &bytes))
 		return -EOVERFLOW;
 	return 0;
 }
@@ -149,13 +154,23 @@ static int dmabench_reserve(struct dmabench_request *req)
 		return -ENODEV;
 	dma = req->chan->device;
 	req->dev = get_device(dmaengine_get_dma_device(req->chan));
+	req->buffer_node = IS_ENABLED(CONFIG_NUMA) ? dev_to_node(req->dev) : 0;
+	if (req->buffer_node < 0 || req->buffer_node >= MAX_NUMNODES ||
+	    !node_online(req->buffer_node) ||
+	    !node_state(req->buffer_node, N_MEMORY)) {
+		dev_err(req->dev,
+			"dmabench: %s allocation device has no usable online memory node (node %d)\n",
+			req->run.config.channel, req->buffer_node);
+		return -EOPNOTSUPP;
+	}
+	req->run.result.buffer_node = req->buffer_node;
 	if (dma_has_cap(DMA_COMPLETION_NO_ORDER, dma->cap_mask) ||
 	    !dma->device_terminate_all || !dma->device_synchronize)
 		return -EOPNOTSUPP;
-	if (!is_dma_copy_aligned(dma, 0, 0, req->run.config.transfer_size))
+	if (!is_dma_copy_aligned(dma, 0, 0, req->transfer_size))
 		return -EINVAL;
-	if (req->allocation_size > dma_max_mapping_size(req->dev) ||
-	    req->allocation_size > dma_get_max_seg_size(req->dev))
+	if (req->transfer_size > dma_max_mapping_size(req->dev) ||
+	    req->transfer_size > dma_get_max_seg_size(req->dev))
 		return -E2BIG;
 	return 0;
 }
@@ -165,28 +180,43 @@ static int dmabench_alloc_buffer(struct dmabench_request *req,
 				 enum dma_data_direction dir)
 {
 	u64 boundary = dma_get_seg_boundary(req->dev);
+	struct sg_page_iter piter;
 	dma_addr_t end;
 
-	buf->sgt = dma_alloc_noncontiguous(req->dev, req->allocation_size, dir,
-					 GFP_KERNEL | __GFP_NOWARN, 0);
+	buf->sgt = dma_alloc_noncontiguous(req->dev, req->transfer_size, dir,
+					   GFP_KERNEL | __GFP_NOWARN | __GFP_THISNODE, 0);
 	if (!buf->sgt)
 		return -ENOMEM;
+	/* CMA and allocation pools may not honor __GFP_THISNODE. */
+	for_each_sgtable_page(buf->sgt, &piter, 0) {
+		int node = page_to_nid(sg_page_iter_page(&piter));
+
+		if (node != req->buffer_node) {
+			dev_err(req->dev,
+				"dmabench: %s buffer page on node %d, required node %d\n",
+				req->run.config.channel, node, req->buffer_node);
+			return -EXDEV;
+		}
+		if (dmabench_cancelled(req))
+			return -EINTR;
+		cond_resched();
+	}
 	buf->dma = sg_dma_address(buf->sgt->sgl);
 	if (buf->sgt->nents != 1 ||
-	    sg_dma_len(buf->sgt->sgl) < req->allocation_size ||
+	    sg_dma_len(buf->sgt->sgl) < req->transfer_size ||
 	    check_add_overflow(buf->dma,
-			       (dma_addr_t)req->allocation_size - 1, &end) ||
+			       (dma_addr_t)req->transfer_size - 1, &end) ||
 	    ((buf->dma ^ end) & ~boundary))
 		return -E2BIG;
 	if (!is_dma_copy_aligned(req->chan->device, buf->dma, 0,
-				req->run.config.transfer_size))
+				req->transfer_size))
 		return -EINVAL;
-	buf->vaddr = dma_vmap_noncontiguous(req->dev, req->allocation_size,
-					   buf->sgt);
+	buf->vaddr = dma_vmap_noncontiguous(req->dev, req->transfer_size,
+					    buf->sgt);
 	if (!buf->vaddr)
 		return -ENOMEM;
 	dma_sync_sgtable_for_cpu(req->dev, buf->sgt, dir);
-	invalidate_kernel_vmap_range(buf->vaddr, req->allocation_size);
+	invalidate_kernel_vmap_range(buf->vaddr, req->transfer_size);
 	return 0;
 }
 
@@ -194,7 +224,7 @@ static void dmabench_buffer_to_device(struct dmabench_request *req,
 				     struct dmabench_buffer *buf,
 				     enum dma_data_direction dir)
 {
-	flush_kernel_vmap_range(buf->vaddr, req->allocation_size);
+	flush_kernel_vmap_range(buf->vaddr, req->transfer_size);
 	dma_sync_sgtable_for_device(req->dev, buf->sgt, dir);
 }
 
@@ -224,7 +254,7 @@ static int dmabench_alloc_pool(struct dmabench_request *req)
 			return ret;
 		src = pair->src.vaddr;
 		dst = pair->dst.vaddr;
-		for (offset = 0; offset < req->allocation_size; offset += PAGE_SIZE) {
+		for (offset = 0; offset < req->transfer_size; offset += PAGE_SIZE) {
 			if (dmabench_cancelled(req))
 				return -EINTR;
 			for (j = offset; j < offset + PAGE_SIZE; j++) {
@@ -243,13 +273,17 @@ static void dmabench_callback(void *param, const struct dmaengine_result *result
 {
 	struct dmabench_batch *batch = param;
 	struct dmabench_request *req = batch->request;
-	unsigned long flags;
+	unsigned long timeout = msecs_to_jiffies(req->run.config.timeout_ms);
+	unsigned long flags, now;
 
 	spin_lock_irqsave(&req->lock, flags);
+	now = jiffies;
+	if (time_after_eq(now, req->progress + timeout))
+		req->timed_out = true;
 	if (batch->final)
 		req->end_ns = ktime_get_ns();
 	batch->error = result && result->result != DMA_TRANS_NOERROR;
-	WRITE_ONCE(req->progress, jiffies);
+	WRITE_ONCE(req->progress, now);
 	/* Final access to the record; the worker may recycle it after unlock. */
 	WRITE_ONCE(batch->done, true);
 	wake_up_interruptible(&req->wait);
@@ -273,6 +307,7 @@ static int dmabench_phase(struct dmabench_request *req, u64 count, bool measured
 	if (!count)
 		return 0;
 	spin_lock_irqsave(&req->lock, flags);
+	req->timed_out = false;
 	WRITE_ONCE(req->progress, jiffies);
 	req->end_ns = 0;
 	spin_unlock_irqrestore(&req->lock, flags);
@@ -284,6 +319,11 @@ static int dmabench_phase(struct dmabench_request *req, u64 count, bool measured
 		if (dmabench_cancelled(req))
 			return -EINTR;
 		spin_lock_irqsave(&req->lock, flags);
+		/* A late callback must not hide expiry by refreshing progress. */
+		if (req->timed_out) {
+			spin_unlock_irqrestore(&req->lock, flags);
+			return -ETIMEDOUT;
+		}
 		while (active && req->batches[head].done) {
 			batch = &req->batches[head];
 			if (batch->error) {
@@ -343,7 +383,7 @@ static int dmabench_phase(struct dmabench_request *req, u64 count, bool measured
 			if (measured && !submitted)
 				start_ns = ktime_get_ns();
 			tx = dmaengine_prep_dma_memcpy(req->chan, pair->dst.dma,
-					pair->src.dma, cfg->transfer_size, prep_flags);
+					pair->src.dma, req->transfer_size, prep_flags);
 			if (!tx)
 				return -EIO;
 			tx->callback = NULL;
@@ -379,7 +419,7 @@ static int dmabench_phase(struct dmabench_request *req, u64 count, bool measured
 		req->run.result.elapsed_ns = req->end_ns - start_ns;
 		req->run.result.submitted = submitted;
 		req->run.result.completed = completed;
-		req->run.result.payload_bytes = completed * cfg->transfer_size;
+		req->run.result.payload_bytes = completed * (u64)req->transfer_size;
 		req->run.result.issue_pending_calls = issues;
 	}
 	return 0;
@@ -397,17 +437,13 @@ static int dmabench_verify(struct dmabench_request *req)
 			continue;
 		dma_sync_sgtable_for_cpu(req->dev, pair->src.sgt, DMA_TO_DEVICE);
 		dma_sync_sgtable_for_cpu(req->dev, pair->dst.sgt, DMA_BIDIRECTIONAL);
-		invalidate_kernel_vmap_range(pair->src.vaddr, req->allocation_size);
-		invalidate_kernel_vmap_range(pair->dst.vaddr, req->allocation_size);
-		for (offset = 0; offset < req->run.config.transfer_size;
-		     offset += PAGE_SIZE) {
-			size_t len = min_t(size_t, PAGE_SIZE,
-					  req->run.config.transfer_size - offset);
-
+		invalidate_kernel_vmap_range(pair->src.vaddr, req->transfer_size);
+		invalidate_kernel_vmap_range(pair->dst.vaddr, req->transfer_size);
+		for (offset = 0; offset < req->transfer_size; offset += PAGE_SIZE) {
 			if (dmabench_cancelled(req))
 				return -EINTR;
 			if (memcmp(pair->src.vaddr + offset, pair->dst.vaddr + offset,
-				   len))
+				   PAGE_SIZE))
 				return -EILSEQ;
 			cond_resched();
 		}
@@ -422,7 +458,7 @@ static void dmabench_free_buffer(struct dmabench_request *req,
 	if (buf->vaddr)
 		dma_vunmap_noncontiguous(req->dev, buf->vaddr);
 	if (buf->sgt)
-		dma_free_noncontiguous(req->dev, req->allocation_size, buf->sgt, dir);
+		dma_free_noncontiguous(req->dev, req->transfer_size, buf->sgt, dir);
 }
 
 static void dmabench_free_resources(struct dmabench_request *req)
