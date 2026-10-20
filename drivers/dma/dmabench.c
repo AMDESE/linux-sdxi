@@ -3,7 +3,6 @@
 
 #include <linux/compat.h>
 #include <linux/completion.h>
-#include <linux/cpu.h>
 #include <linux/ctype.h>
 #include <linux/debugfs.h>
 #include <linux/dma-mapping.h>
@@ -105,8 +104,7 @@ static int dmabench_validate(struct dmabench_request *req)
 
 	if (!cfg->transfers || !cfg->batch_size ||
 	    cfg->batch_size > cfg->queue_depth ||
-	    cfg->queue_depth > cfg->buffer_count || !cfg->timeout_ms ||
-	    cfg->cpu < -1 || (cfg->cpu >= 0 && cfg->cpu >= nr_cpu_ids))
+	    cfg->queue_depth > cfg->buffer_count || !cfg->timeout_ms)
 		return -EINVAL;
 	if (cfg->buffer_count > DMABENCH_MAX_BUFFER_COUNT ||
 	    cfg->queue_depth > DMABENCH_MAX_QUEUE_DEPTH ||
@@ -484,9 +482,6 @@ static int dmabench_worker(void *data)
 	struct dmabench_request *req = data;
 	int ret, terminate_ret;
 
-	ret = dmabench_reserve(req);
-	if (ret)
-		goto free;
 	ret = dmabench_alloc_pool(req);
 	if (ret)
 		goto free;
@@ -546,21 +541,17 @@ static long dmabench_run_ioctl(unsigned int cmd, unsigned long arg)
 	init_waitqueue_head(&req->wait);
 	init_completion(&req->exited);
 
-	cpus_read_lock();
-	if (req->run.config.cpu >= 0 && !cpu_online(req->run.config.cpu)) {
-		ret = -EINVAL;
-		goto unlock;
-	}
-	worker = kthread_create(dmabench_worker, req, "dmabench/%s",
-				req->run.config.channel);
+	ret = dmabench_reserve(req);
+	if (ret)
+		goto free_resources;
+	worker = kthread_create_on_node(dmabench_worker, req, req->buffer_node,
+					"dmabench/%s", req->run.config.channel);
 	if (IS_ERR(worker)) {
 		ret = PTR_ERR(worker);
-		goto unlock;
+		goto free_resources;
 	}
-	if (req->run.config.cpu >= 0)
-		kthread_bind(worker, req->run.config.cpu);
+	/* First wakeup applies node housekeeping affinity; worker owns cleanup. */
 	wake_up_process(worker);
-	cpus_read_unlock();
 
 	ret = wait_for_completion_interruptible(&req->exited);
 	if (ret) {
@@ -577,8 +568,8 @@ static long dmabench_run_ioctl(unsigned int cmd, unsigned long arg)
 	if (!req->retained)
 		kfree(req);
 	return ret;
-unlock:
-	cpus_read_unlock();
+free_resources:
+	dmabench_free_resources(req);
 free:
 	kfree(req);
 	return ret;

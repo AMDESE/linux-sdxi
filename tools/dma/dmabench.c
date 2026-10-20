@@ -39,7 +39,6 @@ static void usage(FILE *stream, const char *program)
 		"  --buffer-count COUNT    Source/destination pairs (default 1024)\n"
 		"  --transfers COUNT       Measured copies (default 100000)\n"
 		"  --warmup-transfers N    Untimed copies (default 4096, may be 0)\n"
-		"  --cpu CPU              Worker CPU (default -1, unbound)\n"
 		"  --timeout-ms MS        No-progress timeout (default 3000)\n"
 		"  --verify               Verify copied buffers after measurement\n"
 		"  --flags MASK           Numeric flags (only bit 0: verification)\n"
@@ -49,7 +48,8 @@ static void usage(FILE *stream, const char *program)
 		"Order 0 copies one kernel page; byte sizes depend on kernel page size.\n"
 		"Limits: 1 GiB per copy, 16 GiB total source/destination pool,\n"
 		"4096 outstanding copies, 65536 buffer pairs, 600000 ms timeout.\n"
-		"All buffer pages must reside on the DMA allocation device's NUMA node.\n",
+		"All buffer pages must reside on the DMA allocation device's NUMA node.\n"
+		"The worker prefers housekeeping CPUs on that node, with hotplug fallback.\n",
 		program);
 }
 
@@ -120,7 +120,6 @@ static void print_results(const struct dmabench_run *run, bool json)
 		       "    \"buffer_count\": %u,\n"
 		       "    \"transfers\": %" PRIu64 ",\n"
 		       "    \"warmup_transfers\": %" PRIu64 ",\n"
-		       "    \"cpu\": %d,\n"
 		       "    \"timeout_ms\": %u,\n"
 		       "    \"flags\": %u\n  },\n"
 		       "  \"result\": {\n"
@@ -137,7 +136,7 @@ static void print_results(const struct dmabench_run *run, bool json)
 		       "    \"transactions_per_second\": %.6f\n  }\n}\n",
 		       cfg->channel, cfg->transfer_order, cfg->queue_depth,
 		       cfg->batch_size, cfg->buffer_count, (uint64_t)cfg->transfers,
-		       (uint64_t)cfg->warmup_transfers, cfg->cpu, cfg->timeout_ms,
+		       (uint64_t)cfg->warmup_transfers, cfg->timeout_ms,
 		       cfg->flags, (uint64_t)res->elapsed_ns, (uint64_t)res->submitted,
 		       (uint64_t)res->completed, (uint64_t)res->payload_bytes,
 		       (uint64_t)res->issue_pending_calls,
@@ -148,7 +147,7 @@ static void print_results(const struct dmabench_run *run, bool json)
 	printf("channel=%s transfer_order=%u transfer_size=%" PRIu64 " buffer_node=%d"
 	       " queue_depth=%u batch_size=%u buffer_count=%u\n"
 	       "transfers=%" PRIu64 " warmup_transfers=%" PRIu64
-	       " cpu=%d timeout_ms=%u flags=%u verify=%s\n"
+	       " timeout_ms=%u flags=%u verify=%s\n"
 	       "elapsed_ns=%" PRIu64 " submitted=%" PRIu64 " completed=%" PRIu64 "\n"
 	       "payload_bytes=%" PRIu64 " issue_pending_calls=%" PRIu64
 	       " allocation_bytes=%" PRIu64 "\n"
@@ -156,7 +155,7 @@ static void print_results(const struct dmabench_run *run, bool json)
 	       cfg->channel, cfg->transfer_order, (uint64_t)res->transfer_size,
 	       res->buffer_node, cfg->queue_depth,
 	       cfg->batch_size, cfg->buffer_count, (uint64_t)cfg->transfers,
-	       (uint64_t)cfg->warmup_transfers, cfg->cpu, cfg->timeout_ms,
+	       (uint64_t)cfg->warmup_transfers, cfg->timeout_ms,
 	       cfg->flags, cfg->flags & DMABENCH_F_VERIFY ? "yes" : "no",
 	       (uint64_t)res->elapsed_ns, (uint64_t)res->submitted,
 	       (uint64_t)res->completed, (uint64_t)res->payload_bytes,
@@ -174,7 +173,6 @@ int main(int argc, char **argv)
 		{ "buffer-count", required_argument, NULL, 'p' },
 		{ "transfers", required_argument, NULL, 't' },
 		{ "warmup-transfers", required_argument, NULL, 'w' },
-		{ "cpu", required_argument, NULL, 'a' },
 		{ "timeout-ms", required_argument, NULL, 'm' },
 		{ "verify", no_argument, NULL, 'v' },
 		{ "flags", required_argument, NULL, 'f' },
@@ -190,7 +188,6 @@ int main(int argc, char **argv)
 			.buffer_count = 1024,
 			.transfers = 100000,
 			.warmup_transfers = 4096,
-			.cpu = -1,
 			.timeout_ms = 3000,
 		},
 	};
@@ -217,18 +214,11 @@ int main(int argc, char **argv)
 		case 'j':
 			json = true;
 			continue;
-		case 'a':
-			if (!strcmp(optarg, "-1")) {
-				cfg->cpu = -1;
-				continue;
-			}
-			break;
 		case '?':
 			usage(stderr, argv[0]);
 			return EXIT_FAILURE;
 		}
-		max = opt == 't' || opt == 'w' ? UINT64_MAX :
-			opt == 'a' ? INT_MAX : UINT32_MAX;
+		max = opt == 't' || opt == 'w' ? UINT64_MAX : UINT32_MAX;
 		if (!parse_u64(optarg, max, &value))
 			goto invalid;
 		switch (opt) {
@@ -249,9 +239,6 @@ int main(int argc, char **argv)
 			break;
 		case 'w':
 			cfg->warmup_transfers = value;
-			break;
-		case 'a':
-			cfg->cpu = value;
 			break;
 		case 'm':
 			cfg->timeout_ms = value;

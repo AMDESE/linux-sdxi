@@ -106,13 +106,12 @@ an elaborate version negotiation protocol.
 | buffer_count | Number of distinct source/destination pairs |
 | transfers | Number of copies in measured phase |
 | warmup_transfers | Number of copies before measured phase; zero permitted |
-| cpu | Worker CPU, or -1 for unbound |
 | timeout_ms | Maximum interval without batch completion progress |
 | flags | Initially optional data verification only |
 
 Require `1 <= batch_size <= queue_depth <= buffer_count`, nonzero transfer
 count, a nonnegative transfer order, and a positive timeout. Reject malformed
-or unterminated channel names. Validate CPU selection, provider copy alignment,
+or unterminated channel names. Validate provider copy alignment,
 conversion to `size_t`, allocation size and count products, and payload
 counter overflow. Establish documented resource limits so arbitrary input
 cannot cause unbounded metadata allocation or nonsensical waits. Fail clearly
@@ -127,7 +126,7 @@ products, `size_t` representability, and measured/warmup payload overflow.
 
 CLI defaults: transfer order 0 (one kernel page), queue depth 64, batch size 16,
 buffer count 1024, 100000 measured copies, 4096 warmup copies, 3000 ms progress
-timeout, unbound worker, and verification disabled. The channel has no default.
+timeout, and verification disabled. The channel has no default.
 Defaults belong in userspace; the kernel validates explicit requests. The same
 order means different byte sizes on kernels with different page sizes.
 Maximum permitted order is 18 with 4 KiB pages or 14 with 64 KiB pages, each
@@ -145,10 +144,24 @@ initialization. Require every `page_to_nid()` to match the captured node;
 return `-EXDEV` with a diagnostic on mismatch, cleaning up all allocations
 without retry. Retain verification because CMA and allocation pools may not
 honor the flag. The guarantee covers every page in every source/destination
-allocation but excludes metadata and provider-owned descriptors. Worker CPU
-placement remains independently controlled by `--cpu`; recommend a fixed CPU
-across comparative runs. Add no user-selectable placement option and change
-no device-global NUMA state, DMA masks, or provider policies. Defer user buffers,
+allocation but excludes metadata and provider-owned descriptors.
+
+After input validation, the ioctl reserves the channel, holds the allocation
+device reference, and validates its node before creating the worker. Initialize
+request synchronization before startup. Use
+`kthread_create_on_node(dmabench_worker, req, req->buffer_node, "dmabench/%s",
+req->run.config.channel)` and wake the worker without explicit CPU binding or
+custom affinity. In this kernel, first wakeup applies affinity to housekeeping
+CPUs on the reported `buffer_node`. Accept fallback to other housekeeping CPUs
+when no local eligible CPUs are available, including after CPU hotplug; this
+is preferred locality, not a strict worker placement guarantee. It does not
+control interrupt affinity or guarantee provider descriptor locality. There
+is no CPU field or `--cpu` option. Before startup, all failures, including a
+partially failed reservation or interrupted worker creation, must release any
+acquired channel and device reference exactly once. Once woken, the worker owns
+resource cleanup and exceptional retention; the ioctl must not clean them up
+again. Add no user-selectable placement option and change no device-global
+NUMA state, DMA masks, or provider policies. Defer user buffers,
 multi-channel requests, descriptor reuse, duration-based runs, hardware
 polling modes, and interrupt moderation controls.
 
@@ -157,8 +170,8 @@ polling modes, and interrupt moderation controls.
 Return raw integer results: elapsed nanoseconds, measured submitted and
 completed copies, completed payload bytes, measured issue_pending calls,
 exact allocation bytes, effective `transfer_size` in bytes, and signed
-`buffer_node`. Retain the effective input configuration. Use a 104-byte config
-with `__u32 transfer_order`, a 96-byte result, and a 200-byte run structure,
+`buffer_node`. Retain the effective input configuration. Use a 96-byte config
+with `__u32 transfer_order`, a 96-byte result, and a 192-byte run structure,
 all aligned to 8 bytes with no implicit padding. The unpublished ioctl ABI
 may change; do not preserve the old layout or command encoding. Compile the
 native and compat ABI checks against the new sizes, offsets, and encoding.
@@ -291,7 +304,8 @@ Consume all available completion progress when awakened.
 
 ## Phases, timing, and teardown
 
-The lifecycle is reserve, allocate/initialize, optional correctness pass,
+The lifecycle is reserve, validate node, create/wake worker, allocate/initialize,
+optional correctness pass,
 warmup, warmup drain, measured run, measured drain, quiesce, optional final
 verification, free, release. Warmup uses the same submission machinery and
 buffers. Start a fresh measured accounting epoch only after it has drained.

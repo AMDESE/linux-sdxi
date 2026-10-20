@@ -22,10 +22,9 @@ struct dmabench_config {
 	__u32 queue_depth;
 	__u32 batch_size;
 	__u32 buffer_count;
-	__s32 cpu; /* -1 for unbound, otherwise an online CPU */
 	__u32 timeout_ms; /* Maximum interval without batch completion progress */
 	__u32 flags;
-	__u32 reserved[7]; /* Must be zero */
+	__u32 reserved[6]; /* Must be zero */
 };
 
 struct dmabench_result {

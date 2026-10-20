@@ -54,7 +54,6 @@ batch-size         16         Maximum submissions per issue and notification
 buffer-count       1024       Number of distinct source/destination pairs
 transfers          100000     Number of measured copies
 warmup-transfers   4096       Untimed copies; zero skips warmup
-cpu                -1         Worker CPU; -1 leaves it unbound
 timeout-ms         3000       Maximum interval without batch completion progress
 flags              0          Bit 0 enables final data verification
 ================== ========== =================================================
@@ -84,11 +83,7 @@ eight. The defaults use 8 MiB for both pools combined with 4 KiB pages or
 128 MiB with 64 KiB pages.
 
 Channel names must be nonempty, NUL-terminated, and consist of ASCII letters,
-digits, underscores, hyphens or periods. A selected CPU must be online at
-worker creation. CPU hotplug may subsequently move the worker; avoid changing
-CPU topology during a run. CPU selection controls worker placement only. It
-does not control buffer NUMA placement or interrupt affinity. Keep the worker
-CPU fixed with ``--cpu`` across comparative runs.
+digits, underscores, hyphens or periods.
 
 The requested memcpy size is never rounded or split into multiple DMAengine
 transactions. Allocation length and payload length are identical. The size
@@ -123,8 +118,16 @@ CMA and allocation-pool paths may not honor the allocation flag, so the page
 check is still required. Mixed or remote placement fails with ``EXDEV`` and a
 kernel diagnostic; all allocations are cleaned up without automatic retry.
 The placement guarantee excludes metadata and provider-owned descriptors.
-The captured node is returned as ``buffer_node``. There is no user-selectable
-placement option, and worker CPU placement remains independently controlled.
+The captured node is returned as ``buffer_node``.
+
+Channel reservation and node validation finish before worker creation. The
+worker automatically prefers housekeeping CPUs on ``buffer_node``. If no local
+eligible housekeeping CPUs are available, the kernel allows fallback to other
+housekeeping CPUs. CPU hotplug and housekeeping changes may move the worker;
+worker locality is a preference rather than a strict placement guarantee.
+This policy does not control interrupt affinity or guarantee provider
+descriptor locality. There is no user-selectable CPU or buffer placement
+option.
 
 Measurement and completion
 --------------------------
@@ -232,8 +235,8 @@ resources. Do not force module removal after a termination failure.
 ABI and errors
 --------------
 
-``include/uapi/linux/dmabench.h`` defines the 200-byte ``struct dmabench_run``:
-a 104-byte configuration followed by a 96-byte result. All three structures
+``include/uapi/linux/dmabench.h`` defines the 192-byte ``struct dmabench_run``:
+a 96-byte configuration followed by a 96-byte result. All three structures
 have 8-byte alignment and no implicit padding. Their fixed-width,
 explicitly aligned fields have the same layout for native and compat callers.
 There are no user pointers in the structure. Zero-initialize the whole
@@ -248,7 +251,7 @@ Error           Meaning
 ENODEV          Named memcpy channel absent, busy, or unavailable to reservation
 EOPNOTSUPP      Unordered completion, missing teardown, or unusable device node
 EXDEV          A source/destination backing page is on a different NUMA node
-EINVAL         Malformed configuration, offline CPU, or unsupported alignment
+EINVAL         Malformed configuration or unsupported alignment
 E2BIG          Resource limit, DMA mapping/segment size, or boundary exceeded
 EOVERFLOW      Size or payload accounting cannot be represented
 ENOMEM         Buffer, CPU mapping, metadata, or worker allocation failed
