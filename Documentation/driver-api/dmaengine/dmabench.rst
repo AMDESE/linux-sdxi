@@ -107,8 +107,10 @@ times ``transfer_size``; it excludes metadata and any internal allocator or
 IOMMU rounding overhead.
 
 After channel reservation, dmabench captures the allocation device's NUMA node
-with ``dev_to_node()``. That node must be valid, online, and have memory;
-otherwise the request fails with ``EOPNOTSUPP`` and a kernel diagnostic.
+with ``dev_to_node()``. If the device has no assigned node (``NUMA_NO_NODE``),
+dmabench uses the first online node. The selected node must be valid, online,
+and have memory; otherwise the request fails with ``EOPNOTSUPP`` and a kernel
+diagnostic.
 Non-NUMA kernels use node 0. Source and destination allocations include
 ``__GFP_THISNODE``. Immediately after each allocation, dmabench walks every
 backing page in the CPU-side sg table and requires ``page_to_nid()`` to match

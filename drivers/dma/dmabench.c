@@ -152,7 +152,9 @@ static int dmabench_reserve(struct dmabench_request *req)
 		return -ENODEV;
 	dma = req->chan->device;
 	req->dev = get_device(dmaengine_get_dma_device(req->chan));
-	req->buffer_node = IS_ENABLED(CONFIG_NUMA) ? dev_to_node(req->dev) : 0;
+	req->buffer_node = dev_to_node(req->dev);
+	if (req->buffer_node == NUMA_NO_NODE)
+		req->buffer_node = first_online_node;
 	if (req->buffer_node < 0 || req->buffer_node >= MAX_NUMNODES ||
 	    !node_online(req->buffer_node) ||
 	    !node_state(req->buffer_node, N_MEMORY)) {

@@ -136,7 +136,8 @@ buddy allocator's maximum order.
 
 Require all source/destination backing pages to reside on the allocation
 device's NUMA node. Capture `dev_to_node()` after channel reservation using
-`dmaengine_get_dma_device(chan)`. Require a valid online node with memory,
+`dmaengine_get_dma_device(chan)`. Fall back to `first_online_node` when
+`dev_to_node()` returns `NUMA_NO_NODE`. Require a valid online node with memory,
 returning `-EOPNOTSUPP` with a clear diagnostic otherwise; use node 0 without
 NUMA. Allocate with `__GFP_THISNODE` and verify every backing page immediately
 after allocation using the CPU-side sg-table page iterator, before vmap or
