@@ -53,63 +53,79 @@ EXPORT_SYMBOL_IF_KUNIT(sdxi_ring_state_init);
  * Reserving publishes the write index before the caller has written the
  * descriptors. Callers are required to publish every reserved slot.
  */
-int sdxi_ring_try_reserve(struct sdxi_ring_state *rs, size_t nr,
-			  struct sdxi_ring_resv *resv)
+int sdxi_ring_try_reserve_range(struct sdxi_ring_state *rs, size_t min_nr,
+				size_t max_nr, struct sdxi_ring_resv *resv)
 {
 	struct sdxi_sq *sq = rs->sq;
-	u64 ridx, new_widx;
+	u64 ridx, widx, available;
+	size_t nr;
 
-	/*
-	 * Caller bug, warn and reject.
-	 */
-	if (nr < 1 || nr > sq->count) {
+	if (!min_nr || min_nr > max_nr || max_nr > sq->count) {
 		WARN_ONCE(!kunit_get_current_test(),
-			  "Reservation of size %zu requested from ring of size %u\n",
-			  nr, sq->count);
+			  "Reservation of size %zu..%zu requested from ring of size %u\n",
+			  min_nr, max_nr, sq->count);
 		return -EINVAL;
 	}
 
-	/*
-	 * The read index is read-only for us and incremented by the
-	 * device. Ensure no torn reads.
-	 */
+	guard(spinlock_irqsave)(&rs->lock);
+	/* SDXI 1.0a 5.3: Read_Index advances at execution start. */
 	ridx = le64_to_cpu(READ_ONCE(sq->cxt_sts.read_index));
+	widx = le64_to_cpu(sq->write_index);
+	if (ridx > widx)
+		return -EIO;
+	if (rs->track_retirement)
+		ridx = min(ridx, rs->retire_index);
+	if (widx - ridx > sq->count)
+		return -EIO;
 
-	scoped_guard(spinlock_irqsave, &rs->lock) {
-		/* READ_ONCE() unnecessary; reads with the lock held cannot tear. */
-		u64 widx = le64_to_cpu(sq->write_index);
-		/*
-		 * Bug: the read index should never exceed the write index.
-		 * TODO: sdxi_err() or similar; need a reference to
-		 * the device.
-		 */
-		if (ridx > widx)
-			return -EIO;
+	available = sq->count - (widx - ridx);
+	if (available < min_nr)
+		return -EBUSY;
+	nr = min_t(u64, max_nr, available);
 
-		new_widx = widx + nr;
-
-		/*
-		 * Not enough space available right now.
-		 * TODO: sdxi_dbg() or tracepoint here.
-		 */
-		if (new_widx - ridx > sq->count)
-			return -EBUSY;
-
-		/* The device reads this; it must not observe a torn value. */
-		WRITE_ONCE(sq->write_index, cpu_to_le64(new_widx));
-	}
-
+	/* The device reads this; it must not observe a torn value. */
+	WRITE_ONCE(sq->write_index, cpu_to_le64(widx + nr));
 	*resv = (typeof(*resv)) {
 		.rs = rs,
 		.range = {
-			.start = new_widx - nr,
-			.end = new_widx - 1,
+			.start = widx,
+			.end = widx + nr - 1,
 		},
 	};
-
 	return 0;
 }
+EXPORT_SYMBOL_IF_KUNIT(sdxi_ring_try_reserve_range);
+
+int sdxi_ring_try_reserve(struct sdxi_ring_state *rs, size_t nr,
+			  struct sdxi_ring_resv *resv)
+{
+	return sdxi_ring_try_reserve_range(rs, nr, nr, resv);
+}
 EXPORT_SYMBOL_IF_KUNIT(sdxi_ring_try_reserve);
+
+void sdxi_ring_track_retirement(struct sdxi_ring_state *rs)
+{
+	guard(spinlock_irqsave)(&rs->lock);
+
+	rs->retire_index = le64_to_cpu(rs->sq->write_index);
+	rs->track_retirement = true;
+}
+EXPORT_SYMBOL_IF_KUNIT(sdxi_ring_track_retirement);
+
+/* @index is the first slot after a prefix with no unconsumed completions. */
+void sdxi_ring_retire(struct sdxi_ring_state *rs, u64 index)
+{
+	scoped_guard(spinlock_irqsave, &rs->lock) {
+		if (WARN_ON_ONCE(!rs->track_retirement ||
+				 index > le64_to_cpu(rs->sq->write_index)))
+			return;
+		if (index <= rs->retire_index)
+			return;
+		rs->retire_index = index;
+	}
+	sdxi_ring_wake_up(rs);
+}
+EXPORT_SYMBOL_IF_KUNIT(sdxi_ring_retire);
 
 /* Blocking ring reservation. Retries until success or non-transient error. */
 int sdxi_ring_reserve(struct sdxi_ring_state *rs, size_t nr,

@@ -5,6 +5,7 @@
  * Copyright Advanced Micro Devices, Inc.
  */
 
+#include <kunit/visibility.h>
 #include <linux/cleanup.h>
 #include <linux/delay.h>
 #include <linux/dev_printk.h>
@@ -26,6 +27,8 @@
 #include "ring.h"
 #include "sdxi.h"
 
+VISIBLE_IF_KUNIT void sdxi_dma_reap_locked(struct sdxi_dma_chan *sdchan);
+
 static unsigned short dma_channels = 1;
 module_param(dma_channels, ushort, 0644);
 MODULE_PARM_DESC(dma_channels, "DMA channels per function (default: 1)");
@@ -44,41 +47,20 @@ MODULE_PARM_DESC(dma_channels, "DMA channels per function (default: 1)");
  * the submitted list.
  *
  * device_issue_pending() moves submitted txds to a per-channel pending
- * list and drains it: for each pending txd, in cookie order, it reserves
- * ring slots, encodes the descriptors in place, attaches the completion
- * block, sets the valid bits, appends an interrupt terminator, and rings
- * the doorbell. Reserving at issue (rather than at prep) keeps ring order
- * equal to cookie order, which virt-dma's in-order completion model
- * requires. Transactions that do not fit stay on the pending list and are
- * drained by the completion IRQ as ring space frees.
+ * list and drains it in cookie order. Each batch reserves ring slots for
+ * copies and a fenced interrupt terminator, encodes the descriptors with
+ * individual completion blocks, and publishes their valid bits. A drain
+ * rings the doorbell once after publishing all batches that fit. Reserving
+ * at issue (rather than at prep) keeps ring order equal to cookie order,
+ * which virt-dma's in-order completion model requires. Transactions that
+ * do not fit stay pending and are drained by the completion IRQ as ring
+ * space frees.
  */
-
-struct sdxi_dma_chan {
-	struct virt_dma_chan vchan;
-	struct sdxi_cxt *cxt;
-	unsigned int vector;
-	unsigned int irq;
-	struct sdxi_akey_ent *akey;
-	/*
-	 * Issued transactions waiting for ring space. Guarded by vchan.lock.
-	 */
-	struct list_head pending;
-};
 
 struct sdxi_dma_dev {
 	struct dma_device dma_dev;
 	size_t nr_channels;
 	struct sdxi_dma_chan sdchan[] __counted_by(nr_channels);
-};
-
-struct sdxi_dma_txd {
-	struct virt_dma_desc vdesc;
-	struct sdxi_copy copy;	/* Copy operation parameters */
-	/*
-	 * This transaction's entry in the context's completion array,
-	 * bound to its ring slot at issue time. NULL until issued.
-	 */
-	struct sdxi_cst_blk *cst;
 };
 
 static struct sdxi_dma_chan *to_sdxi_dma_chan(const struct dma_chan *dma_chan)
@@ -159,57 +141,69 @@ static enum dma_status sdxi_tx_status(struct dma_chan *chan,
 }
 
 /*
- * Place as many pending copies into the ring as fit, each followed by an
- * interrupt terminator. Leftovers stay on the pending list for the next
- * drain (a later issue, or a completion IRQ freeing ring space). Caller
- * holds vchan.lock.
+ * Fill capacity with complete, fenced batches in cookie order. Return true
+ * if descriptors were published; the caller kicks once with the lock held.
  */
-static void sdxi_dma_drain_locked(struct sdxi_dma_chan *sdchan)
+VISIBLE_IF_KUNIT bool sdxi_dma_drain_locked(struct sdxi_dma_chan *sdchan)
 {
 	struct sdxi_cxt *cxt = sdchan->cxt;
 	struct sdxi_ring_state *rs = cxt->ring_state;
-	struct virt_dma_desc *vdesc, *tmp;
 	bool pushed = false;
 
 	lockdep_assert_held(&sdchan->vchan.lock);
 
-	list_for_each_entry_safe(vdesc, tmp, &sdchan->pending, node) {
-		struct sdxi_dma_txd *txd = to_sdxi_dma_txd(vdesc);
+	while (!list_empty(&sdchan->pending)) {
+		struct virt_dma_desc *vdesc;
 		struct sdxi_ring_resv resv;
 		struct sdxi_desc *desc;
-		struct sdxi_slot slot;
+		size_t copies = 0;
 
-		if (sdxi_ring_try_reserve(rs, 2, &resv))
+		/* Select a prefix, ending just after the first flag boundary. */
+		list_for_each_entry(vdesc, &sdchan->pending, node) {
+			copies++;
+			if (vdesc->tx.flags & (DMA_PREP_INTERRUPT | DMA_PREP_FENCE) ||
+			    copies == rs->sq->count - 1)
+				break;
+		}
+		if (sdxi_ring_try_reserve_range(rs, 2, copies + 1, &resv))
 			break;
 
-		slot = sdxi_ring_resv_slot(&resv, 0);
-		desc = sdxi_slot_desc(slot);
-		(void)sdxi_encode_copy(desc, &txd->copy); /* validated at prep */
-		txd->cst = sdxi_cxt_attach_cst(cxt, slot);
-		sdxi_desc_make_valid(desc);
+		copies = sdxi_ring_resv_count(&resv) - 1;
+		for (size_t i = 0; i < copies; i++) {
+			struct sdxi_dma_txd *txd;
+			struct sdxi_slot slot = sdxi_ring_resv_slot(&resv, i);
+
+			vdesc = list_first_entry(&sdchan->pending,
+						struct virt_dma_desc, node);
+			txd = to_sdxi_dma_txd(vdesc);
+			desc = sdxi_slot_desc(slot);
+			(void)sdxi_encode_copy(desc, &txd->copy); /* validated at prep */
+			txd->cst = sdxi_cxt_attach_cst(cxt, slot);
+			txd->copy_index = slot.index;
+			txd->retire_index = slot.index + 1;
+			if (i == copies - 1)
+				txd->retire_index++; /* Interrupt has no completion block. */
+			sdxi_desc_make_valid(desc);
+			list_move_tail(&vdesc->node, &sdchan->vchan.desc_issued);
+		}
 
 		/*
-		 * The fence waits for the copy's completion before generating
-		 * the interrupt. It also holds descriptor parsing here until
-		 * the copy completes, so subsequent copies cannot start early
-		 * (SDXI 1.0a 5.3, parsing steps 7-9). This honors DMA_PREP_FENCE
-		 * without fencing the copy itself.
-		 * TODO: one interrupt per batch.
+		 * FE waits for all copies before notifying and before parsing
+		 * subsequent copies (SDXI 1.0a 5.3, steps 7-9). One terminator
+		 * satisfies both flags and supplies internal completion IRQs.
 		 */
-		desc = sdxi_slot_desc(sdxi_ring_resv_slot(&resv, 1));
+		desc = sdxi_slot_desc(sdxi_ring_resv_slot(&resv, copies));
 		sdxi_encode_intr(desc, &(const struct sdxi_intr) {
 			.akey = sdxi_akey_index(cxt, sdchan->akey),
 		});
 		sdxi_desc_set_fence(desc);
 		sdxi_desc_make_valid(desc);
-
-		list_move_tail(&vdesc->node, &sdchan->vchan.desc_issued);
 		pushed = true;
 	}
 
-	if (pushed)
-		sdxi_cxt_kick(cxt);
+	return pushed;
 }
+EXPORT_SYMBOL_IF_KUNIT(sdxi_dma_drain_locked);
 
 static void sdxi_dma_issue_pending(struct dma_chan *dma_chan)
 {
@@ -218,7 +212,8 @@ static void sdxi_dma_issue_pending(struct dma_chan *dma_chan)
 	guard(spinlock_irqsave)(&sdchan->vchan.lock);
 
 	list_splice_tail_init(&sdchan->vchan.desc_submitted, &sdchan->pending);
-	sdxi_dma_drain_locked(sdchan);
+	if (sdxi_dma_drain_locked(sdchan))
+		sdxi_cxt_kick(sdchan->cxt);
 }
 
 static int sdxi_dma_terminate_all(struct dma_chan *dma_chan)
@@ -232,7 +227,7 @@ static int sdxi_dma_terminate_all(struct dma_chan *dma_chan)
 	 * yet submitted) is still owned and being written by its caller --
 	 * possibly another thread sharing this channel -- so freeing it would
 	 * be a use-after-free. desc_issued is in the ring: it runs to
-	 * completion and the IRQ reaps it (and frees its completion block).
+	 * completion and the IRQ reaps it (and retires its completion block).
 	 * sdxi_dma_synchronize() waits for the ring to drain.
 	 */
 	scoped_guard(spinlock_irqsave, &vchan->lock) {
@@ -253,15 +248,26 @@ static void sdxi_dma_synchronize(struct dma_chan *dma_chan)
 	struct sdxi_slot nop;
 	int err;
 
-	/* Submit a single nop with fence and wait for it to complete. */
+	/* Do not overwrite a completion left pending by a previous timeout. */
+	scoped_guard(spinlock_irqsave, &sdchan->vchan.lock) {
+		sdxi_dma_reap_locked(sdchan);
+		if (sdchan->sync_cst)
+			return;
+	}
 
+	/* Submit a single nop with fence and wait for it to complete. */
 	if (sdxi_ring_reserve(cxt->ring_state, 1, &resv))
 		return;
 
 	nop = sdxi_ring_resv_slot(&resv, 0);
-	sdxi_serialize_nop(sdxi_slot_desc(nop));
-	sdxi_cxt_submit(cxt, nop, &cst,
-			SDXI_CXT_SUBMIT_FENCE | SDXI_CXT_SUBMIT_KICK);
+	scoped_guard(spinlock_irqsave, &sdchan->vchan.lock) {
+		sdxi_serialize_nop(sdxi_slot_desc(nop));
+		sdchan->sync_index = nop.index;
+		sdchan->sync_polling = true;
+		sdxi_cxt_submit(cxt, nop, &cst,
+				SDXI_CXT_SUBMIT_FENCE | SDXI_CXT_SUBMIT_KICK);
+		sdchan->sync_cst = cst;
+	}
 
 	err = sdxi_cst_blk_poll(cst);
 	WARN_ONCE(err, "got %d polling cst_blk", err);
@@ -275,17 +281,20 @@ static void sdxi_dma_synchronize(struct dma_chan *dma_chan)
 	 * callback_param) freed once we return.
 	 */
 	synchronize_irq(sdchan->irq);
+	scoped_guard(spinlock_irqsave, &sdchan->vchan.lock) {
+		sdchan->sync_polling = false;
+		/* Also consume statuses if the final batch IRQ has not arrived. */
+		sdxi_dma_reap_locked(sdchan);
+	}
 	vchan_synchronize(&sdchan->vchan);
 }
 
-static irqreturn_t sdxi_dma_cxt_irq(int irq, void *data)
+VISIBLE_IF_KUNIT void sdxi_dma_reap_locked(struct sdxi_dma_chan *sdchan)
 {
-	struct sdxi_dma_chan *sdchan = data;
 	struct virt_dma_chan *vchan = &sdchan->vchan;
 	struct virt_dma_desc *vdesc;
-	bool completed = false;
 
-	guard(spinlock_irqsave)(&vchan->lock);
+	lockdep_assert_held(&vchan->lock);
 
 	/*
 	 * Reap completed txds in issue (cookie) order. After terminate_all,
@@ -295,6 +304,15 @@ static irqreturn_t sdxi_dma_cxt_irq(int irq, void *data)
 		struct sdxi_dma_txd *txd = to_sdxi_dma_txd(vdesc);
 		enum sdxi_completion_state state;
 
+		/* A synchronization NOP may sit between issued batches. */
+		if (sdchan->sync_cst && txd->copy_index > sdchan->sync_index) {
+			if (sdchan->sync_polling ||
+			    sdxi_cst_blk_check(sdchan->sync_cst) == SDXI_COMPLETION_PENDING)
+				break;
+			sdxi_ring_retire(sdchan->cxt->ring_state, sdchan->sync_index + 1);
+			sdchan->sync_cst = NULL;
+		}
+
 		state = sdxi_cst_blk_check(txd->cst);
 		if (state == SDXI_COMPLETION_PENDING)
 			break;
@@ -303,15 +321,29 @@ static irqreturn_t sdxi_dma_cxt_irq(int irq, void *data)
 			txd->vdesc.tx_result.result = DMA_TRANS_ABORTED;
 
 		list_del(&vdesc->node);
+		sdxi_ring_retire(sdchan->cxt->ring_state, txd->retire_index);
 		vchan_cookie_complete(&txd->vdesc);
-		completed = true;
 	}
 
-	/* Freed ring space may let stalled pending txds proceed. */
-	sdxi_dma_drain_locked(sdchan);
+	if (list_empty(&vchan->desc_issued) && sdchan->sync_cst &&
+	    !sdchan->sync_polling &&
+	    sdxi_cst_blk_check(sdchan->sync_cst) != SDXI_COMPLETION_PENDING) {
+		sdxi_ring_retire(sdchan->cxt->ring_state, sdchan->sync_index + 1);
+		sdchan->sync_cst = NULL;
+	}
+}
+EXPORT_SYMBOL_IF_KUNIT(sdxi_dma_reap_locked);
 
-	if (completed)
-		sdxi_ring_wake_up(sdchan->cxt->ring_state);
+static irqreturn_t sdxi_dma_cxt_irq(int irq, void *data)
+{
+	struct sdxi_dma_chan *sdchan = data;
+
+	guard(spinlock_irqsave)(&sdchan->vchan.lock);
+
+	sdxi_dma_reap_locked(sdchan);
+	/* Consumed completion blocks may let stalled pending txds proceed. */
+	if (sdxi_dma_drain_locked(sdchan))
+		sdxi_cxt_kick(sdchan->cxt);
 
 	return IRQ_HANDLED;
 }
@@ -325,6 +357,9 @@ static int sdxi_dma_alloc_chan_resources(struct dma_chan *dma_chan)
 	sdchan->cxt = sdxi_cxt_new(sdxi);
 	if (!sdchan->cxt)
 		return -ENOMEM;
+	sdxi_ring_track_retirement(sdchan->cxt->ring_state);
+	sdchan->sync_cst = NULL;
+	sdchan->sync_polling = false;
 	/*
 	 * This irq and akey setup should perhaps all be pushed into
 	 * the context allocation.

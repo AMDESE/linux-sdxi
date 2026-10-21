@@ -21,14 +21,18 @@ struct sdxi_sq;
 /*
  * struct sdxi_ring_state - Software state for driving a submission queue.
  *
- * @lock: Guards the write index.
+ * @lock: Guards the write and retirement indices.
  * @sq: The submission queue being driven.
  * @wqh: Pending reservations.
+ * @retire_index: First slot whose completion has not been consumed.
+ * @track_retirement: Bound reservations by software completion consumption.
  */
 struct sdxi_ring_state {
 	spinlock_t lock;
 	struct sdxi_sq *sq;
 	wait_queue_head_t wqh;
+	u64 retire_index;
+	bool track_retirement;
 };
 
 /*
@@ -47,6 +51,11 @@ int sdxi_ring_reserve(struct sdxi_ring_state *ring, size_t nr,
 		      struct sdxi_ring_resv *resv);
 int sdxi_ring_try_reserve(struct sdxi_ring_state *ring, size_t nr,
 			  struct sdxi_ring_resv *resv);
+int sdxi_ring_try_reserve_range(struct sdxi_ring_state *rs, size_t min_nr,
+				size_t max_nr, struct sdxi_ring_resv *resv);
+/* Enable before the first reservation; retire only consumed prefixes. */
+void sdxi_ring_track_retirement(struct sdxi_ring_state *rs);
+void sdxi_ring_retire(struct sdxi_ring_state *rs, u64 index);
 struct sdxi_desc *sdxi_ring_desc(const struct sdxi_ring_state *rs, u64 index);
 
 /* Number of slots held by @resv. */

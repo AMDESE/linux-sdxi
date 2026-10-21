@@ -92,9 +92,64 @@ static void invalid(struct kunit *t)
 	KUNIT_EXPECT_EQ(t, sdxi_ring_try_reserve(&rs, sq->count, &resv), -EBUSY);
 }
 
+static void bounded_reservations(struct kunit *t)
+{
+	struct sdxi_ring_state rs;
+	struct sdxi_ring_resv resv;
+	struct sdxi_sq *sq = alloc_sq(t, SZ_1K);
+
+	KUNIT_ASSERT_NOT_NULL(t, sq);
+	sdxi_ring_state_init(&rs, sq);
+	KUNIT_EXPECT_EQ(t, sdxi_ring_try_reserve_range(&rs, 0, 2, &resv), -EINVAL);
+	KUNIT_EXPECT_EQ(t, sdxi_ring_try_reserve_range(&rs, 3, 2, &resv), -EINVAL);
+	KUNIT_EXPECT_EQ(t, sdxi_ring_try_reserve_range(&rs, 2, sq->count + 1, &resv),
+			-EINVAL);
+
+	sq->write_index = cpu_to_le64(sq->count - 2);
+	KUNIT_ASSERT_EQ(t, sdxi_ring_try_reserve_range(&rs, 2, 10, &resv), 0);
+	KUNIT_EXPECT_EQ(t, sdxi_ring_resv_count(&resv), 2);
+	KUNIT_EXPECT_EQ(t, resv.range.start, sq->count - 2);
+	KUNIT_EXPECT_EQ(t, sdxi_ring_try_reserve_range(&rs, 2, 10, &resv), -EBUSY);
+	sq->cxt_sts.read_index = cpu_to_le64(1);
+	KUNIT_EXPECT_EQ(t, sdxi_ring_try_reserve_range(&rs, 2, 10, &resv), -EBUSY);
+	sq->cxt_sts.read_index = cpu_to_le64(5);
+	KUNIT_ASSERT_EQ(t, sdxi_ring_try_reserve_range(&rs, 2, 10, &resv), 0);
+	KUNIT_EXPECT_EQ(t, sdxi_ring_resv_count(&resv), 5);
+	KUNIT_EXPECT_PTR_EQ(t, sdxi_slot_desc(sdxi_ring_resv_slot(&resv, 0)),
+			    &sq->ring[0]);
+}
+
+static void retirement_bound(struct kunit *t)
+{
+	struct sdxi_ring_state rs;
+	struct sdxi_ring_resv resv;
+	struct sdxi_sq *sq = alloc_sq(t, SZ_1K);
+
+	KUNIT_ASSERT_NOT_NULL(t, sq);
+	sdxi_ring_state_init(&rs, sq);
+	sdxi_ring_track_retirement(&rs);
+	KUNIT_ASSERT_EQ(t, sdxi_ring_try_reserve(&rs, sq->count, &resv), 0);
+	sq->cxt_sts.read_index = sq->write_index;
+	KUNIT_EXPECT_EQ(t, sdxi_ring_try_reserve(&rs, 1, &resv), -EBUSY);
+	sdxi_ring_retire(&rs, 2);
+	KUNIT_ASSERT_EQ(t, sdxi_ring_try_reserve_range(&rs, 2, 20, &resv), 0);
+	KUNIT_EXPECT_EQ(t, sdxi_ring_resv_count(&resv), 2);
+	KUNIT_EXPECT_EQ(t, resv.range.start, sq->count);
+	/* Stale retirement must never move the index backwards. */
+	sdxi_ring_retire(&rs, 1);
+	KUNIT_EXPECT_EQ(t, rs.retire_index, 2);
+	KUNIT_EXPECT_EQ(t, sdxi_ring_try_reserve(&rs, 1, &resv), -EBUSY);
+	/* Software retirement cannot override the hardware bound either. */
+	sdxi_ring_retire(&rs, sq->count + 2);
+	sq->cxt_sts.read_index = cpu_to_le64(2);
+	KUNIT_EXPECT_EQ(t, sdxi_ring_try_reserve(&rs, 1, &resv), -EBUSY);
+}
+
 static struct kunit_case testcases[] = {
 	KUNIT_CASE(valid),
 	KUNIT_CASE(invalid),
+	KUNIT_CASE(bounded_reservations),
+	KUNIT_CASE(retirement_bound),
 	{}
 };
 

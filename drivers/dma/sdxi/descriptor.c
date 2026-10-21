@@ -58,6 +58,7 @@ void sdxi_serialize_nop(struct sdxi_desc *desc)
 	};
 
 }
+EXPORT_SYMBOL_IF_KUNIT(sdxi_serialize_nop);
 
 int sdxi_encode_copy(struct sdxi_desc *desc, const struct sdxi_copy *params)
 {

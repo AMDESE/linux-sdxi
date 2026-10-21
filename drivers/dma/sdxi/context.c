@@ -7,6 +7,7 @@
 
 #define pr_fmt(fmt)     "SDXI: " fmt
 
+#include <kunit/visibility.h>
 #include <linux/align.h>
 #include <linux/bitfield.h>
 #include <linux/bug.h>
@@ -536,6 +537,7 @@ void sdxi_cxt_submit(struct sdxi_cxt *cxt, struct sdxi_slot slot,
 	if (flags & SDXI_CXT_SUBMIT_KICK)
 		sdxi_cxt_kick(cxt);
 }
+EXPORT_SYMBOL_IF_KUNIT(sdxi_cxt_submit);
 
 /*
  * Release an unused, stopped client context. On update/sync failure the

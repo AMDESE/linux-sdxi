@@ -13,4 +13,5 @@ sdxi-pci-y := pci.o
 
 obj-$(CONFIG_SDXI_KUNIT_TEST) += \
 	descriptor_kunit.o    \
+	dma_kunit.o           \
 	ring_kunit.o
