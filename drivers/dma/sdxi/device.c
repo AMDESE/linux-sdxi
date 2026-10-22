@@ -14,6 +14,7 @@
 #include <linux/idr.h>
 #include <linux/iopoll.h>
 #include <linux/jiffies.h>
+#include <linux/limits.h>
 #include <linux/log2.h>
 #include <linux/minmax.h>
 #include <linux/slab.h>
@@ -336,6 +337,9 @@ static int sdxi_fn_activate(struct sdxi_dev *sdxi)
 	cap1 = sdxi_read64(sdxi, SDXI_MMIO_CAP1);
 	sdxi->op_grp_cap = FIELD_GET(SDXI_MMIO_CAP1_OPB_000_CAP, cap1);
 	sdxi->max_buffer = FIELD_GET(SDXI_MMIO_CAP1_MAX_BUFFER, cap1);
+	/* The DMA segment size cannot represent the full 4 GiB buffer size. */
+	dma_set_max_seg_size(sdxi->dev,
+			     min_t(u64, 1ULL << (sdxi->max_buffer + 21), U32_MAX));
 
 	/*
 	 * Constrain the number of client contexts supported by the
