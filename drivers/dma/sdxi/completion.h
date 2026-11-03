@@ -34,6 +34,10 @@ int sdxi_cst_pool_get_wait(struct sdxi_cst_pool *pool,
 /* Release only after consumption, unpublished rollback, or hardware quiescence. */
 void sdxi_cst_pool_put(struct sdxi_cst_pool *pool, struct sdxi_cst_blk *cst);
 
+#if IS_ENABLED(CONFIG_SDXI_KUNIT_TEST)
+struct sdxi_cst_pool *sdxi_cst_pool_test_create(unsigned int count);
+void sdxi_cst_pool_test_destroy(struct sdxi_cst_pool *pool);
+#endif
 
 static inline void sdxi_cst_blk_init(struct sdxi_cst_blk *cst)
 {
