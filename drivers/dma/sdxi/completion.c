@@ -4,6 +4,7 @@
  *
  * Copyright Advanced Micro Devices, Inc.
  */
+#include <kunit/visibility.h>
 #include <linux/bitfield.h>
 #include <linux/bitmap.h>
 #include <linux/dma-mapping.h>
@@ -90,6 +91,7 @@ bool sdxi_cst_pool_get(struct sdxi_cst_pool *pool, struct sdxi_completion *comp)
 	sdxi_cst_blk_init(comp->cst_blk);
 	return true;
 }
+EXPORT_SYMBOL_IF_KUNIT(sdxi_cst_pool_get);
 
 int sdxi_cst_pool_get_wait(struct sdxi_cst_pool *pool,
 			 struct sdxi_completion *comp)
@@ -116,7 +118,42 @@ void sdxi_cst_pool_put(struct sdxi_cst_pool *pool, struct sdxi_cst_blk *cst)
 	spin_unlock_irqrestore(&pool->lock, flags);
 	wake_up_all(&pool->wait);
 }
+EXPORT_SYMBOL_IF_KUNIT(sdxi_cst_pool_put);
 
+#if IS_ENABLED(CONFIG_SDXI_KUNIT_TEST)
+/* Exercise allocation without requiring a device capable of coherent DMA. */
+struct sdxi_cst_pool *sdxi_cst_pool_test_create(unsigned int count)
+{
+	struct sdxi_cst_pool *pool;
+
+	pool = kzalloc_obj(*pool, GFP_KERNEL);
+	if (!pool)
+		return NULL;
+	pool->allocated = bitmap_zalloc(count, GFP_KERNEL);
+	if (!pool->allocated) {
+		kfree(pool);
+		return NULL;
+	}
+	pool->blocks = kcalloc(count, sizeof(*pool->blocks), GFP_KERNEL);
+	if (!pool->blocks) {
+		bitmap_free(pool->allocated);
+		kfree(pool);
+		return NULL;
+	}
+	pool->dma = 0x1000;
+	sdxi_cst_pool_init(pool, count);
+	return pool;
+}
+EXPORT_SYMBOL_IF_KUNIT(sdxi_cst_pool_test_create);
+
+void sdxi_cst_pool_test_destroy(struct sdxi_cst_pool *pool)
+{
+	kfree(pool->blocks);
+	bitmap_free(pool->allocated);
+	kfree(pool);
+}
+EXPORT_SYMBOL_IF_KUNIT(sdxi_cst_pool_test_destroy);
+#endif
 
 enum sdxi_completion_state sdxi_cst_blk_check(const struct sdxi_cst_blk *cst)
 {
